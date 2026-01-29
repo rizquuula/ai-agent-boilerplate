@@ -2,9 +2,10 @@
 
 import os
 from typing import Any
-from langchain_openai import ChatOpenAI
+
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import PromptTemplate
+from langchain_openai import ChatOpenAI
 
 from .base import BaseLLMProvider
 

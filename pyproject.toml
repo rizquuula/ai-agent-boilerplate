@@ -10,6 +10,29 @@ dependencies = [
     "langchain-openai>=1.1.7",
     "langgraph>=1.0.7",
     "pydantic>=2.12.5",
+    "pytest>=8.3.0",
     "python-dotenv>=1.2.1",
     "pyyaml>=6.0.3",
 ]
+
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+exclude = [
+    ".git",
+    "__pycache__",
+    ".venv",          # ignore virtual env
+    "build",
+    "dist",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]  # E,F = errors, I = isort (imports), UP = pyupgrade
+fixable = ["ALL"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+log_cli = true
+log_level = "INFO"
