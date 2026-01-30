@@ -6,7 +6,7 @@ authors = [{name = "AI Agent Boilerplate"}]
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "fastmcp>=2.14.4",
+    "fastmcp<3",
 ]
 
 [project.scripts]
