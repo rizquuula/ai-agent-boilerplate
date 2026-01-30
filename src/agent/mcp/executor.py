@@ -8,7 +8,7 @@ from typing import Any
 
 from agent.mcp.transport_executor.base import BaseTransport
 
-from .config import get_mcp_config
+from .config import MCPConfig, get_mcp_config
 from .transport_executor import create_transport
 
 
@@ -22,9 +22,11 @@ class MCPExecutor:
         Args:
             config_path: Path to the MCP configuration file. If None, uses default location.
         """
-        self.config = get_mcp_config()
         if config_path:
-            self.config = self.config.load_config(config_path)
+            self.config = MCPConfig(config_path)
+            self.config.load_config()
+        else:
+            self.config = get_mcp_config()
         self.transports: dict[str, BaseTransport | None] = {}
         self.tool_cache: dict[str, list] = {}
 
