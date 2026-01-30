@@ -11,6 +11,7 @@ port = int(os.environ.get("MCP_PORT", "3000"))
 # Create the FastMCP instance
 mcp = FastMCP(
     "localtime-mcp",
+    host="0.0.0.0",
     port=port,
 )
 
