@@ -140,7 +140,11 @@ class AgentGraph:
         workflow.add_edge(START, "architect")
 
         # After planning, check if we have milestones to process
-        workflow.add_conditional_edges("architect", should_continue, {"route_skill": "router", "end": END})
+        workflow.add_conditional_edges(
+            "architect",
+            should_continue,
+            {"route_skill": "router", "end": END}
+        )
 
         # The Skill Loop: Routing -> Refining -> Executing
         workflow.add_edge("router", "refiner")

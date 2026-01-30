@@ -61,7 +61,7 @@ GUIDELINES:
 RESPONSE FORMAT:
 Return a structured plan with:
 - description: Clear statement of what the milestone accomplishes
-- skill: One of the available skills (filesystem, code-reader, code-analyzer, report-writer)
+- skill: One of the available skills (filesystem, ppt-writer, song-writer, etc.)
 - success_criteria: Specific, verifiable criteria for completion
 
 Example good milestone:
@@ -102,7 +102,7 @@ def node(state: AgentState, llm_provider: "BaseLLMProvider") -> AgentState:
         prompt = create_planning_prompt(objective)
 
         # Use LLM to generate structured plan
-        plan = llm_provider.invoke_structured(prompt, MilestonePlan)
+        plan: MilestonePlan = llm_provider.invoke_structured(prompt, MilestonePlan)
 
         # Convert to SubGoal objects
         milestones = [
