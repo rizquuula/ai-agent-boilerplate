@@ -1,4 +1,5 @@
-"""Shared fixtures for unit tests."""
+"""Shared fixtures for integration tests."""
+
 
 import pytest
 from dotenv import load_dotenv

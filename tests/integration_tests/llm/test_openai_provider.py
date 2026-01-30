@@ -3,7 +3,7 @@
 import pytest
 
 from agent.llm.base import BaseLLMProvider
-from src.agent.llm.openai_provider import OpenAIProvider
+from agent.llm.openai_provider import OpenAIProvider
 
 
 def test_invoke_simple_prompt(openai_provider: BaseLLMProvider, test_prompt: str):
