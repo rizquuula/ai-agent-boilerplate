@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "Simple MCP server that returns current local time"
 readme = "readme.md"
 requires-python = ">=3.11"
-dependencies = ["mcp>=1.0.0"]
+dependencies = [
+    "mcp>=1.0.0",
+    "uvicorn>=0.23.0",
+]
 
 [project.scripts]
 localtime-mcp = "localtime_mcp.server:main"
