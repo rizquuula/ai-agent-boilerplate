@@ -26,10 +26,7 @@ class SSETransport(BaseTransport):
 
         # Verify connection
         try:
-            response = self._session.get(
-                f"{self._base_url}/health",
-                timeout=self._timeout
-            )
+            response = self._session.get(f"{self._base_url}/health", timeout=self._timeout)
             if not response.ok:
                 raise RuntimeError(f"Server health check failed: {response.text}")
         except requests.RequestException as e:
@@ -59,7 +56,7 @@ class SSETransport(BaseTransport):
 
         for line in response.iter_lines():
             if line:
-                yield json.loads(line.decode('utf-8'))
+                yield json.loads(line.decode("utf-8"))
 
     def execute_tool(self, tool_name: str, **kwargs: Any) -> dict[str, Any]:
         """Execute a tool via SSE connection."""
@@ -69,11 +66,7 @@ class SSETransport(BaseTransport):
         url = f"{self._base_url}/tools/{tool_name}"
 
         try:
-            response = self._session.post(
-                url,
-                json=kwargs,
-                timeout=self._timeout
-            )
+            response = self._session.post(url, json=kwargs, timeout=self._timeout)
 
             if response.status_code != 200:
                 return {
@@ -84,21 +77,12 @@ class SSETransport(BaseTransport):
             # Wait for result through event stream
             for event in self._event_stream:
                 if event.get("tool") == tool_name:
-                    return {
-                        "success": True,
-                        "result": event.get("result")
-                    }
+                    return {"success": True, "result": event.get("result")}
 
-            return {
-                "success": False,
-                "error": "No response received from server"
-            }
+            return {"success": False, "error": "No response received from server"}
 
         except requests.RequestException as e:
-            return {
-                "success": False,
-                "error": f"SSE request failed: {str(e)}"
-            }
+            return {"success": False, "error": f"SSE request failed: {str(e)}"}
 
     def list_tools(self) -> list[str]:
         """List available tools via SSE endpoint."""

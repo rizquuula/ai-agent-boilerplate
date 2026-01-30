@@ -23,10 +23,7 @@ class HTTPStreamTransport(BaseTransport):
 
         # Verify connection
         try:
-            response = self._session.get(
-                f"{self._base_url}/health",
-                timeout=self._timeout
-            )
+            response = self._session.get(f"{self._base_url}/health", timeout=self._timeout)
             if not response.ok:
                 raise RuntimeError(f"Server health check failed: {response.text}")
         except requests.RequestException as e:
@@ -47,13 +44,7 @@ class HTTPStreamTransport(BaseTransport):
         url = f"{self._base_url}/tools/{tool_name}"
 
         try:
-            with self._session.post(
-                url,
-                json=kwargs,
-                stream=True,
-                timeout=self._timeout
-            ) as response:
-
+            with self._session.post(url, json=kwargs, stream=True, timeout=self._timeout) as response:
                 if response.status_code != 200:
                     return {
                         "success": False,
@@ -61,21 +52,16 @@ class HTTPStreamTransport(BaseTransport):
                     }
 
                 import json
+
                 result = {}
                 for chunk in response.iter_lines():
                     if chunk:
                         result.update(json.loads(chunk))
 
-                return {
-                    "success": True,
-                    "result": result
-                }
+                return {"success": True, "result": result}
 
         except requests.RequestException as e:
-            return {
-                "success": False,
-                "error": f"HTTP request failed: {str(e)}"
-            }
+            return {"success": False, "error": f"HTTP request failed: {str(e)}"}
 
     def list_tools(self) -> list[str]:
         """List available tools via HTTP endpoint."""

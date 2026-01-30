@@ -22,7 +22,7 @@ class StdioTransport(BaseTransport):
                 stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1,
-                universal_newlines=True
+                universal_newlines=True,
             )
         except Exception as e:
             raise RuntimeError(f"Failed to start MCP server: {str(e)}") from e
@@ -42,12 +42,7 @@ class StdioTransport(BaseTransport):
             raise RuntimeError("Server process is not running")
 
         self._request_id += 1
-        request = {
-            "jsonrpc": "2.0",
-            "method": tool_name,
-            "params": kwargs,
-            "id": self._request_id
-        }
+        request = {"jsonrpc": "2.0", "method": tool_name, "params": kwargs, "id": self._request_id}
 
         try:
             self._process.stdin.write(json.dumps(request) + "\n")

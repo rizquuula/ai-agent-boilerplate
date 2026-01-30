@@ -10,6 +10,7 @@ from typing import Any
 
 MCP_SERVERS_KEY = "mcpServers"
 
+
 class MCPConfig:
     """MCP server configuration manager."""
 
@@ -158,7 +159,7 @@ class MCPConfig:
         return {
             "command": server_config.get("command"),
             "args": server_config.get("args", []),
-            "transport": server_config.get("transport", "stdio")
+            "transport": server_config.get("transport", "stdio"),
         }
 
 
