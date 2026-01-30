@@ -31,23 +31,11 @@ class HTTPStreamTransport(BaseTransport):
     def _initialize(self) -> None:
         """Perform MCP initialization handshake over HTTP Stream."""
         url = f"{self._base_url}/mcp"
-        headers = {
-            "Accept": "application/json, text/event-stream",
-            "Content-Type": "application/json",
-        }
+        headers = self._build_request_headers()
 
         # Send initialize request
         self._request_id += 1
-        init_request = {
-            "jsonrpc": "2.0",
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": {"name": "ai-agent", "version": "0.1.0"},
-            },
-            "id": self._request_id,
-        }
+        init_request = self._build_init_request()
 
         try:
             response = self._session.post(
@@ -61,7 +49,7 @@ class HTTPStreamTransport(BaseTransport):
                 raise RuntimeError(f"HTTP initialization failed: {response.status_code}")
 
             # Extract session ID from response headers
-            self._session_id = response.headers.get("mcp-session-id")
+            self._session_id = self._extract_session_id(response)
             if not self._session_id:
                 raise RuntimeError("No session ID received from server")
 
@@ -77,6 +65,34 @@ class HTTPStreamTransport(BaseTransport):
         self._initialized = True
 
         # Send initialized notification
+        self._send_initialized_notification()
+
+    def _build_init_request(self) -> dict[str, Any]:
+        """Build the MCP initialize request payload."""
+        return {
+            "jsonrpc": "2.0",
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "ai-agent", "version": "0.1.0"},
+            },
+            "id": self._request_id,
+        }
+
+    def _build_request_headers(self) -> dict[str, str]:
+        """Build HTTP request headers for MCP communication."""
+        return {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        }
+
+    def _extract_session_id(self, response: requests.Response) -> str | None:
+        """Extract session ID from response headers."""
+        return response.headers.get("mcp-session-id")
+
+    def _send_initialized_notification(self) -> None:
+        """Send the initialized notification to the server."""
         notification = {
             "jsonrpc": "2.0",
             "method": "notifications/initialized",
@@ -110,12 +126,22 @@ class HTTPStreamTransport(BaseTransport):
             raise RuntimeError("HTTP transport not connected")
 
         url = f"{self._base_url}/mcp"
-        headers = {
+        headers = self._build_message_headers()
+
+        return self._post_request(url, headers, message)
+
+    def _build_message_headers(self) -> dict[str, str]:
+        """Build HTTP headers for sending messages with session ID."""
+        return {
             "Accept": "application/json, text/event-stream",
             "Content-Type": "application/json",
             "mcp-session-id": self._session_id or "",
         }
 
+    def _post_request(
+        self, url: str, headers: dict[str, str], message: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Execute HTTP POST request and parse response."""
         try:
             with self._session.post(
                 url,
@@ -150,18 +176,26 @@ class HTTPStreamTransport(BaseTransport):
             raise RuntimeError("MCP server not initialized")
 
         self._request_id += 1
-        request = {
-            "jsonrpc": "2.0",
-            "method": "tools/call",
-            "params": {"name": tool_name, "arguments": kwargs or {}},
-            "id": self._request_id,
-        }
+        request = self._build_tool_request(tool_name, kwargs)
 
         response = self._send_message(request)
 
         if "error" in response:
             return {"success": False, "error": response["error"]}
 
+        return self._parse_tool_result(response)
+
+    def _build_tool_request(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Build the JSON-RPC request for tool execution."""
+        return {
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "params": {"name": tool_name, "arguments": arguments or {}},
+            "id": self._request_id,
+        }
+
+    def _parse_tool_result(self, response: dict[str, Any]) -> dict[str, Any]:
+        """Parse tool execution result from response."""
         result = response.get("result", {})
         contents = result.get("content", [])
 
@@ -169,10 +203,7 @@ class HTTPStreamTransport(BaseTransport):
             return {"success": True, "result": {}}
 
         # Aggregate text from all content blocks
-        text = ""
-        for item in contents:
-            if item.get("type") == "text":
-                text += item.get("text", "")
+        text = self._extract_text_content(contents)
 
         try:
             parsed_result = json.loads(text) if text else {}
@@ -181,23 +212,39 @@ class HTTPStreamTransport(BaseTransport):
 
         return {"success": True, "result": parsed_result}
 
+    def _extract_text_content(self, contents: list[dict[str, Any]]) -> str:
+        """Extract and aggregate text from content blocks."""
+        text = ""
+        for item in contents:
+            if item.get("type") == "text":
+                text += item.get("text", "")
+        return text
+
     def list_tools(self) -> list[str]:
         """List available tools via MCP protocol."""
         if not self.is_alive() or not self._initialized:
             return []
 
         self._request_id += 1
-        request = {
-            "jsonrpc": "2.0",
-            "method": "tools/list",
-            "id": self._request_id,
-        }
+        request = self._build_list_tools_request()
 
         response = self._send_message(request)
 
         if "error" in response:
             return []
 
+        return self._parse_tools_response(response)
+
+    def _build_list_tools_request(self) -> dict[str, Any]:
+        """Build the JSON-RPC request for listing tools."""
+        return {
+            "jsonrpc": "2.0",
+            "method": "tools/list",
+            "id": self._request_id,
+        }
+
+    def _parse_tools_response(self, response: dict[str, Any]) -> list[str]:
+        """Parse tools list from response."""
         result = response.get("result", {})
         tools = result.get("tools", [])
         return [tool["name"] for tool in tools]

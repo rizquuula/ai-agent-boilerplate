@@ -34,7 +34,23 @@ class StdioTransport(BaseTransport):
     def _initialize(self) -> None:
         """Perform MCP initialization handshake."""
         self._request_id += 1
-        request = {
+        request = self._build_init_request()
+
+        self._send_json_request(request)
+        response = self._read_json_response()
+        result = json.loads(response)
+
+        if "error" in result:
+            raise RuntimeError(f"MCP initialization failed: {result['error']}")
+
+        self._initialized = True
+
+        # Send initialized notification
+        self._send_notification()
+
+    def _build_init_request(self) -> dict[str, Any]:
+        """Build the MCP initialize request payload."""
+        return {
             "jsonrpc": "2.0",
             "method": "initialize",
             "params": {
@@ -45,23 +61,22 @@ class StdioTransport(BaseTransport):
             "id": self._request_id,
         }
 
+    def _send_json_request(self, request: dict[str, Any]) -> None:
+        """Send a JSON-RPC request to the process stdin."""
         self._process.stdin.write(json.dumps(request) + "\n")
         self._process.stdin.flush()
-        response = self._process.stdout.readline()
-        result = json.loads(response)
 
-        if "error" in result:
-            raise RuntimeError(f"MCP initialization failed: {result['error']}")
+    def _read_json_response(self) -> str:
+        """Read a JSON-RPC response from the process stdout."""
+        return self._process.stdout.readline()
 
-        self._initialized = True
-
-        # Send initialized notification
+    def _send_notification(self) -> None:
+        """Send the initialized notification to the server."""
         notification = {
             "jsonrpc": "2.0",
             "method": "notifications/initialized",
         }
-        self._process.stdin.write(json.dumps(notification) + "\n")
-        self._process.stdin.flush()
+        self._send_json_request(notification)
 
     def stop(self) -> None:
         """Stop the MCP server process."""
@@ -84,9 +99,8 @@ class StdioTransport(BaseTransport):
             request["params"] = params
 
         try:
-            self._process.stdin.write(json.dumps(request) + "\n")
-            self._process.stdin.flush()
-            response = self._process.stdout.readline()
+            self._send_json_request(request)
+            response = self._read_json_response()
             return json.loads(response)
         except Exception as e:
             raise RuntimeError(f"Request failed: {str(e)}") from e
@@ -111,12 +125,21 @@ class StdioTransport(BaseTransport):
         if not contents:
             return {}
 
-        # Aggregate text from all content blocks (or just the first text block)
+        # Aggregate text from all content blocks
+        text = self._extract_text_content(contents)
+
+        return self._parse_tool_output(text)
+
+    def _extract_text_content(self, contents: list[dict[str, Any]]) -> str:
+        """Extract and aggregate text from content blocks."""
         text = ""
         for item in contents:
             if item.get("type") == "text":
                 text += item.get("text", "")
+        return text
 
+    def _parse_tool_output(self, text: str) -> dict[str, Any]:
+        """Parse tool output text into a dictionary."""
         try:
             # Try standard JSON first
             data = json.loads(text)
@@ -139,6 +162,10 @@ class StdioTransport(BaseTransport):
         if "error" in response:
             raise RuntimeError(f"Failed to list tools: {response['error']}")
 
+        return self._parse_tools_response(response)
+
+    def _parse_tools_response(self, response: dict[str, Any]) -> list[str]:
+        """Parse tools list from response."""
         tools = response.get("result", {}).get("tools", [])
         return [tool["name"] for tool in tools]
 
