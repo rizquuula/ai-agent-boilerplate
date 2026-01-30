@@ -14,7 +14,7 @@ def mock_config():
     config.get_server_metadata.return_value = {
         "command": "test_command",
         "args": ["arg1", "arg2"],
-        "transport": "stdio"
+        "transport": "stdio",
     }
     config.is_server_enabled.return_value = True
     config.get_enabled_servers.return_value = ["filesystem", "code_parser"]
@@ -130,7 +130,7 @@ class TestMCPExecutor:
         """Test getting available tools when transport fails."""
         mock_config.get_server_metadata.side_effect = [
             {"command": "test", "args": [], "transport": "stdio"},
-            None  # Second server fails
+            None,  # Second server fails
         ]
 
         with patch("agent.mcp.executor.get_mcp_config", return_value=mock_config):
@@ -209,6 +209,7 @@ class TestGlobalFunctions:
 
             # Reset the global instance
             import agent.mcp.executor as executor_module
+
             executor_module._mcp_executor = None
 
             result1 = get_mcp_executor()
@@ -223,6 +224,7 @@ class TestGlobalFunctions:
             with patch("agent.mcp.executor.create_transport", return_value=mock_transport):
                 # Reset the global instance to ensure fresh executor
                 import agent.mcp.executor as executor_module
+
                 executor_module._mcp_executor = None
 
                 # Test valid tool

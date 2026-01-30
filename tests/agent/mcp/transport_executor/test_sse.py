@@ -149,9 +149,11 @@ def test_sse_transport_execute_tool_success(mock_session_class):
     transport.start("test", ["http://localhost:8080"])
 
     # Mock event stream to return a matching event
-    transport._event_stream = iter([
-        {"tool": "test_tool", "result": "test_result"},
-    ])
+    transport._event_stream = iter(
+        [
+            {"tool": "test_tool", "result": "test_result"},
+        ]
+    )
 
     result = transport.execute_tool("test_tool", arg1="value1")
 
@@ -257,9 +259,11 @@ def test_sse_transport_list_tools_success(mock_session_class):
 
     transport = SSETransport()
     transport.start("test", ["http://localhost:8080"])
-    transport._event_stream = iter([
-        {"tool": "_list_tools", "result": {"tools": ["tool1", "tool2"]}},
-    ])
+    transport._event_stream = iter(
+        [
+            {"tool": "_list_tools", "result": {"tools": ["tool1", "tool2"]}},
+        ]
+    )
 
     tools = transport.list_tools()
 

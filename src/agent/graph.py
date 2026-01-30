@@ -1,75 +1,181 @@
-from typing import Literal
+"""LangGraph workflow definition for the hierarchical agent."""
+
+from typing import TYPE_CHECKING, Literal
 
 from langgraph.graph import END, START, StateGraph
 
 from .nodes import architect, auditor, executor, refiner, router
 from .state import AgentState
 
+if TYPE_CHECKING:
+    from agent.llm.base import BaseLLMProvider
+    from agent.mcp.executor import MCPExecutor
 
-# 1. Define the Logic for Conditional Edges
+
+# Conditional edge functions
 def should_continue(state: AgentState) -> Literal["route_skill", "end"]:
-    """Determines if there are more milestones or if we are finished."""
-    if state["current_idx"] >= len(state["milestones"]):
+    """Determine if there are more milestones or if we are finished.
+
+    Args:
+        state: Current agent state
+
+    Returns:
+        "route_skill" to continue, "end" to finish
+    """
+    milestones = state.get("milestones", [])
+    current_idx = state.get("current_idx", 0)
+
+    if not milestones:
         return "end"
+
+    if current_idx >= len(milestones):
+        return "end"
+
     return "route_skill"
 
 
 def check_validation(state: AgentState) -> Literal["next_milestone", "retry"]:
-    """Decides if the sub-goal was met or needs a re-plan."""
-    if state["last_verification_status"] == "passed":
+    """Decide if the milestone was met or needs retry.
+
+    Args:
+        state: Current agent state
+
+    Returns:
+        "next_milestone" to advance, "retry" to try again
+    """
+    verification_status = state.get("last_verification_status", "")
+
+    if verification_status == "passed":
         return "next_milestone"
+
     return "retry"
 
 
 def next_milestone(state: AgentState) -> AgentState:
-    """Advance to the next milestone."""
+    """Advance to the next milestone.
+
+    Args:
+        state: Current agent state
+
+    Returns:
+        Updated state with incremented index and reset fields
+    """
     return {
         **state,
-        "current_idx": state["current_idx"] + 1,
-        "last_verification_status": "",  # Reset for next milestone
+        "current_idx": state.get("current_idx", 0) + 1,
+        "tactical_plan": [],  # Reset tactical plan
+        "active_skill_context": "",  # Reset skill context
+        "last_verification_status": "",  # Reset validation status
+        "retry_count": 0,  # Reset retry count
     }
 
 
-# 2. Build the Graph
-def create_agent_graph():
-    workflow = StateGraph(AgentState)
+class AgentGraph:
+    """Production-ready agent graph with dependency injection."""
 
-    # Add our Hierarchical Nodes
-    workflow.add_node("architect", architect.node)  # Global Planner
-    workflow.add_node("router", router.node)  # Skill/MCP Loader
-    workflow.add_node("refiner", refiner.node)  # Tactical Planner
-    workflow.add_node("executor", executor.node)  # Tool Executor
-    workflow.add_node("auditor", auditor.node)  # Quality Control
+    def __init__(
+        self,
+        llm_provider: "BaseLLMProvider",
+        mcp_executor: "MCPExecutor",
+    ):
+        """Initialize the agent graph.
 
-    # Add helper node for milestone advancement
-    workflow.add_node("next_milestone", next_milestone)
+        Args:
+            llm_provider: LLM provider for planning and validation
+            mcp_executor: MCP executor for tool execution
+        """
+        self.llm_provider = llm_provider
+        self.mcp_executor = mcp_executor
+        self._compiled_graph = None
 
-    # 3. Define the Flow
-    workflow.add_edge(START, "architect")
+    def _create_node_functions(self):
+        """Create node functions with dependencies injected."""
 
-    # After planning, we check if we have milestones to process
-    workflow.add_conditional_edges("architect", should_continue, {"route_skill": "router", "end": END})
+        def architect_node(state: AgentState) -> AgentState:
+            return architect.node(state, self.llm_provider)
 
-    # The Skill Loop: Routing -> Refining -> Executing
-    workflow.add_edge("router", "refiner")
-    workflow.add_edge("refiner", "executor")
-    workflow.add_edge("executor", "auditor")
+        def router_node(state: AgentState) -> AgentState:
+            return router.node(state)
 
-    # The Validation Loop (Self-Healing)
-    workflow.add_conditional_edges(
-        "auditor",
-        check_validation,
-        {
-            "next_milestone": "next_milestone",
-            "retry": "router",  # Try the same milestone again with context
-        },
-    )
+        def refiner_node(state: AgentState) -> AgentState:
+            return refiner.node(state, self.llm_provider)
 
-    # After advancing milestone, check if we continue or end
-    workflow.add_conditional_edges("next_milestone", should_continue, {"route_skill": "router", "end": END})
+        def executor_node(state: AgentState) -> AgentState:
+            return executor.node(state, self.mcp_executor)
 
-    return workflow.compile()
+        def auditor_node(state: AgentState) -> AgentState:
+            return auditor.node(state, self.llm_provider)
+
+        return {
+            "architect": architect_node,
+            "router": router_node,
+            "refiner": refiner_node,
+            "executor": executor_node,
+            "auditor": auditor_node,
+        }
+
+    def compile(self):
+        """Compile the agent graph.
+
+        Returns:
+            Compiled StateGraph ready for execution
+        """
+        if self._compiled_graph is not None:
+            return self._compiled_graph
+
+        workflow = StateGraph(AgentState)
+
+        # Get node functions with injected dependencies
+        nodes = self._create_node_functions()
+
+        # Add nodes
+        workflow.add_node("architect", nodes["architect"])
+        workflow.add_node("router", nodes["router"])
+        workflow.add_node("refiner", nodes["refiner"])
+        workflow.add_node("executor", nodes["executor"])
+        workflow.add_node("auditor", nodes["auditor"])
+        workflow.add_node("next_milestone", next_milestone)
+
+        # Define edges
+        workflow.add_edge(START, "architect")
+
+        # After planning, check if we have milestones to process
+        workflow.add_conditional_edges("architect", should_continue, {"route_skill": "router", "end": END})
+
+        # The Skill Loop: Routing -> Refining -> Executing
+        workflow.add_edge("router", "refiner")
+        workflow.add_edge("refiner", "executor")
+        workflow.add_edge("executor", "auditor")
+
+        # The Validation Loop (Self-Healing)
+        workflow.add_conditional_edges(
+            "auditor",
+            check_validation,
+            {
+                "next_milestone": "next_milestone",
+                "retry": "router",  # Try again with fresh context
+            },
+        )
+
+        # After advancing milestone, check if we continue or end
+        workflow.add_conditional_edges("next_milestone", should_continue, {"route_skill": "router", "end": END})
+
+        self._compiled_graph = workflow.compile()
+        return self._compiled_graph
 
 
-# Export the compiled graph
-app = create_agent_graph()
+def create_agent_graph(
+    llm_provider: "BaseLLMProvider",
+    mcp_executor: "MCPExecutor",
+):
+    """Create and compile the agent graph.
+
+    Args:
+        llm_provider: LLM provider for planning and validation
+        mcp_executor: MCP executor for tool execution
+
+    Returns:
+        Compiled StateGraph ready for execution
+    """
+    graph = AgentGraph(llm_provider, mcp_executor)
+    return graph.compile()

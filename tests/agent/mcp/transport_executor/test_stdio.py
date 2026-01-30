@@ -123,11 +123,13 @@ def test_stdio_transport_execute_tool_success(mock_popen):
     """Test successful tool execution."""
     mock_process = MagicMock()
     mock_process.poll.return_value = None
-    mock_process.stdout.readline.return_value = json.dumps({
-        "jsonrpc": "2.0",
-        "result": "test_result",
-        "id": 1,
-    })
+    mock_process.stdout.readline.return_value = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "result": "test_result",
+            "id": 1,
+        }
+    )
     mock_popen.return_value = mock_process
 
     transport = StdioTransport()
@@ -173,11 +175,13 @@ def test_stdio_transport_execute_tool_incrementing_id(mock_popen):
     """Test that request IDs are incrementing."""
     mock_process = MagicMock()
     mock_process.poll.return_value = None
-    mock_process.stdout.readline.return_value = json.dumps({
-        "jsonrpc": "2.0",
-        "result": "test",
-        "id": 1,
-    })
+    mock_process.stdout.readline.return_value = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "result": "test",
+            "id": 1,
+        }
+    )
     mock_popen.return_value = mock_process
 
     transport = StdioTransport()
@@ -199,11 +203,13 @@ def test_stdio_transport_list_tools(mock_popen):
     """Test listing tools."""
     mock_process = MagicMock()
     mock_process.poll.return_value = None
-    mock_process.stdout.readline.return_value = json.dumps({
-        "jsonrpc": "2.0",
-        "result": ["tool1", "tool2", "tool3"],
-        "id": 1,
-    })
+    mock_process.stdout.readline.return_value = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "result": ["tool1", "tool2", "tool3"],
+            "id": 1,
+        }
+    )
     mock_popen.return_value = mock_process
 
     transport = StdioTransport()
@@ -220,11 +226,13 @@ def test_stdio_transport_list_tools_empty(mock_popen):
     """Test listing tools returns empty list when no tools."""
     mock_process = MagicMock()
     mock_process.poll.return_value = None
-    mock_process.stdout.readline.return_value = json.dumps({
-        "jsonrpc": "2.0",
-        "result": [],
-        "id": 1,
-    })
+    mock_process.stdout.readline.return_value = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "result": [],
+            "id": 1,
+        }
+    )
     mock_popen.return_value = mock_process
 
     transport = StdioTransport()

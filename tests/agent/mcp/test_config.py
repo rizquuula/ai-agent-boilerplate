@@ -1,6 +1,5 @@
 """Test MCP configuration system."""
 
-
 from unittest.mock import patch
 
 import pytest
@@ -16,7 +15,7 @@ def test_load_config(mock_load):
             "filesystem": {
                 "command": "uvx",
                 "args": ["external_resources/mcp_servers/stdio/filesystem_mcp"],
-                "transport": "stdio"
+                "transport": "stdio",
             }
         }
     }
@@ -38,7 +37,7 @@ def test_get_server_metadata(mock_load):
             "filesystem": {
                 "command": "uvx",
                 "args": ["external_resources/mcp_servers/stdio/filesystem_mcp"],
-                "transport": "stdio"
+                "transport": "stdio",
             }
         }
     }
@@ -50,7 +49,7 @@ def test_get_server_metadata(mock_load):
     assert metadata == {
         "command": "uvx",
         "args": ["external_resources/mcp_servers/stdio/filesystem_mcp"],
-        "transport": "stdio"
+        "transport": "stdio",
     }
     assert config.get_server_metadata("non_existent") is None
 
@@ -58,12 +57,7 @@ def test_get_server_metadata(mock_load):
 @patch("agent.mcp.config.MCPConfig.load_config")
 def test_get_available_servers(mock_load):
     """Test getting list of available servers."""
-    mock_config = {
-        "mcpServers": {
-            "filesystem": {},
-            "code_parser": {}
-        }
-    }
+    mock_config = {"mcpServers": {"filesystem": {}, "code_parser": {}}}
     mock_load.return_value = mock_config
 
     config = MCPConfig()
@@ -77,12 +71,7 @@ def test_get_available_servers(mock_load):
 @patch("agent.mcp.config.MCPConfig.load_config")
 def test_get_enabled_servers(mock_load):
     """Test getting list of enabled servers."""
-    mock_config = {
-        "mcpServers": {
-            "filesystem": {"enabled": True},
-            "code_parser": {"enabled": False}
-        }
-    }
+    mock_config = {"mcpServers": {"filesystem": {"enabled": True}, "code_parser": {"enabled": False}}}
     mock_load.return_value = mock_config
 
     config = MCPConfig()
@@ -90,8 +79,6 @@ def test_get_enabled_servers(mock_load):
 
     assert "filesystem" in enabled_servers
     assert "code_parser" not in enabled_servers
-
-
 
 
 if __name__ == "__main__":

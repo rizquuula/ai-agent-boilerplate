@@ -1,64 +1,237 @@
-"""Auditor node: Success validation and replanning."""
+"""Auditor node: Success validation and replanning using LLM."""
 
-from agent.state import AgentState
+from typing import TYPE_CHECKING
+
+from pydantic import BaseModel, Field
+
+from agent.state import AgentState, ErrorRecord, SubGoal
+from agent.utils.tool_parser import (
+    format_execution_results,
+    format_milestone_history,
+    get_milestone_history,
+    has_execution_failures,
+)
+
+if TYPE_CHECKING:
+    from agent.llm.base import BaseLLMProvider
 
 
-def node(state: AgentState) -> AgentState:
-    """Validates if the current milestone was completed successfully."""
-    current_milestone = state["milestones"][state["current_idx"]]
+class ValidationResult(BaseModel):
+    """Result of milestone validation."""
+
+    success: bool = Field(description="Whether the milestone was completed successfully")
+    reasoning: str = Field(description="Explanation of the validation decision")
+    retry_strategy: str | None = Field(default=None, description="Suggested approach if retry needed")
+
+
+def create_validation_prompt(state: AgentState) -> str:
+    """Create the validation prompt for the LLM.
+
+    Args:
+        state: Current agent state
+
+    Returns:
+        Formatted prompt string
+    """
+    milestones = state.get("milestones", [])
+    current_idx = state.get("current_idx", 0)
+
+    if not milestones or current_idx >= len(milestones):
+        return "No active milestone to validate."
+
+    current_milestone = milestones[current_idx]
     history = state.get("history", [])
+    milestone_history = get_milestone_history(history, current_milestone.id)
 
-    # Analyze the history to determine if the milestone was completed
-    verification_status = "failed"  # Default to failed
+    prompt_parts = [
+        "You are a validation AI. Determine if the milestone was completed successfully.",
+        "",
+        "MILESTONE TO VALIDATE:",
+        f"Description: {current_milestone.description}",
+        f"Success Criteria: {current_milestone.success_criteria}",
+        "",
+    ]
 
-    if not history:
-        # No tools were executed
-        verification_status = "failed"
+    # Include execution history
+    if milestone_history:
+        prompt_parts.extend(
+            [
+                "TOOLS EXECUTED:",
+                format_milestone_history(milestone_history),
+                "",
+                "EXECUTION RESULTS:",
+                format_execution_results(milestone_history),
+                "",
+            ]
+        )
     else:
-        # Check the results of the executed tools
-        successful_tools = [h for h in history if h.get("success", False)]
-        # failed_tools = [h for h in history if not h.get("success", True)]
+        prompt_parts.extend(
+            [
+                "TOOLS EXECUTED: None",
+                "",
+            ]
+        )
 
-        skill_name = current_milestone.assigned_skill
-        description = current_milestone.description.lower()
+    prompt_parts.extend(
+        [
+            "VALIDATION INSTRUCTIONS:",
+            "1. Check if the success criteria were met",
+            "2. Verify tools executed successfully (no errors)",
+            "3. Confirm the milestone's objective was achieved",
+            "4. Consider partial successes appropriately",
+            "",
+            "RESPONSE FORMAT:",
+            "- success: true/false (strict - only true if criteria fully met)",
+            "- reasoning: Detailed explanation of your decision",
+            "- retry_strategy: Specific approach to fix issues (if failed)",
+            "",
+            "MAKE YOUR VALIDATION:",
+        ]
+    )
 
-        # Milestone-specific validation logic
-        if skill_name == "filesystem" and "list all python files" in description:
-            # Check if we successfully listed Python files
-            python_files_found = any(
-                h.get("tool") == "filesystem:list_files"
-                and h.get("success")
-                and any(f.endswith(".py") for f in h.get("result", []))
-                for h in successful_tools
-            )
-            if python_files_found:
-                verification_status = "passed"
+    return "\n".join(prompt_parts)
 
-        elif skill_name == "code_reader" and "extract function definitions" in description:
-            # Check if we successfully read some Python files
-            files_read = any(h.get("tool") == "filesystem:read_file" and h.get("success") for h in successful_tools)
-            if files_read:
-                verification_status = "passed"
 
-        elif skill_name == "code_analyzer" and "complexity issues" in description:
-            # Check if we performed complexity analysis
-            analysis_done = any(
-                h.get("tool") == "code_parser:analyze_complexity" and h.get("success") for h in successful_tools
-            )
-            if analysis_done:
-                verification_status = "passed"
+def handle_retry(state: AgentState, milestone: SubGoal, validation: ValidationResult | None = None) -> AgentState:
+    """Handle retry logic with limits.
 
-        elif skill_name == "report_writer" and "summary report" in description:
-            # Check if we wrote a report file
-            report_written = any(
-                h.get("tool") == "filesystem:write_file" and h.get("success") for h in successful_tools
-            )
-            if report_written:
-                verification_status = "passed"
+    Args:
+        state: Current agent state
+        milestone: Current milestone
+        validation: Validation result if available
 
+    Returns:
+        Updated state with retry information
+    """
+    retry_count = state.get("retry_count", 0) + 1
+    max_retries = 3
+
+    errors = state.get("errors", [])
+
+    if retry_count > max_retries:
+        # Max retries exceeded - mark as failed and move on
+        milestone.status = "failed"
+
+        # Add error record for max retries
+        error_record = ErrorRecord(
+            milestone_id=milestone.id,
+            error_message=f"Max retries ({max_retries}) exceeded for milestone",
+            suggested_fix="Manual intervention required",
+        )
+        errors.append(error_record)
+
+        return {
+            **state,
+            "last_verification_status": "failed",
+            "retry_count": 0,
+            "errors": errors,
+        }
+
+    # Add error record with retry strategy
+    if validation and validation.retry_strategy:
+        error_record = ErrorRecord(
+            milestone_id=milestone.id,
+            error_message=validation.reasoning,
+            suggested_fix=validation.retry_strategy,
+        )
+        errors.append(error_record)
+
+    return {
+        **state,
+        "last_verification_status": "failed",
+        "retry_count": retry_count,
+        "errors": errors,
+    }
+
+
+def update_global_context(current_context: str, milestone: SubGoal, history: list) -> str:
+    """Update global context with milestone results.
+
+    Args:
+        current_context: Existing global context
+        milestone: Completed milestone
+        history: Execution history for this milestone
+
+    Returns:
+        Updated global context string
+    """
+    # Count successes and failures
+    successful_tools = sum(1 for h in history if h.success)
+    failed_tools = sum(1 for h in history if not h.success)
+
+    milestone_summary = f"""
+Milestone: {milestone.description}
+Status: {"COMPLETED" if milestone.status == "completed" else "FAILED"}
+Tools: {successful_tools} successful, {failed_tools} failed
+"""
+
+    # Combine with existing context
+    if current_context:
+        return f"{current_context}\n{milestone_summary}"
+    return milestone_summary
+
+
+def node(state: AgentState, llm_provider: "BaseLLMProvider") -> AgentState:
+    """Validate milestone completion using LLM.
+
+    Args:
+        state: Current agent state with execution history
+        llm_provider: LLM provider for validation
+
+    Returns:
+        Updated state with validation status
+    """
+    milestones = state.get("milestones", [])
+    current_idx = state.get("current_idx", 0)
+
+    # Validate we have an active milestone
+    if not milestones or current_idx >= len(milestones):
+        return {**state, "last_verification_status": "failed"}
+
+    current_milestone = milestones[current_idx]
+    history = state.get("history", [])
+    milestone_history = get_milestone_history(history, current_milestone.id)
+
+    # Check for execution failures first
+    if has_execution_failures(milestone_history):
+        # Even before LLM validation, we know something failed
+        # Still run LLM validation to get retry strategy
+        pass
+
+    try:
+        # Generate validation prompt
+        prompt = create_validation_prompt(state)
+
+        # Use LLM to validate
+        validation = llm_provider.invoke_structured(prompt, ValidationResult)
+
+        if validation.success:
+            # Mark milestone as completed
+            current_milestone.status = "completed"
+
+            # Update global context with learnings
+            global_context = state.get("global_context", "")
+            updated_global = update_global_context(global_context, current_milestone, milestone_history)
+
+            return {
+                **state,
+                "last_verification_status": "passed",
+                "retry_count": 0,
+                "global_context": updated_global,
+            }
         else:
-            # Generic validation: if any tools succeeded, consider it passed
-            if successful_tools:
-                verification_status = "passed"
+            # Handle retry
+            return handle_retry(state, current_milestone, validation)
 
-    return {**state, "last_verification_status": verification_status}
+    except Exception as e:
+        # Handle LLM errors gracefully - fail open and retry
+        error_record = ErrorRecord(
+            milestone_id=current_milestone.id,
+            error_message=f"Validation LLM call failed: {str(e)}",
+            suggested_fix="Retry with same approach",
+        )
+
+        errors = state.get("errors", [])
+        errors.append(error_record)
+
+        return handle_retry({**state, "errors": errors}, current_milestone, None)

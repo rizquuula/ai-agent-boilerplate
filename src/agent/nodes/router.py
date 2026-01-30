@@ -1,71 +1,111 @@
 """Router node: Skill and MCP tool selector."""
 
-from pathlib import Path
-
-import yaml
-
 from agent.state import AgentState
-
-
-def load_skill_data(skill_name: str) -> dict:
-    """Load skill configuration from filesystem."""
-    skill_dir = Path(__file__).parent.parent.parent / "skills" / skill_name
-
-    # Load prompt
-    prompt_file = skill_dir / "prompt.md"
-    if not prompt_file.exists():
-        raise FileNotFoundError(f"Skill prompt file not found: {prompt_file}")
-
-    with open(prompt_file) as f:
-        system_prompt = f.read().strip()
-
-    # Load tools configuration
-    tools_file = skill_dir / "tools.yaml"
-    if not tools_file.exists():
-        raise FileNotFoundError(f"Skill tools file not found: {tools_file}")
-
-    with open(tools_file) as f:
-        tools_config = yaml.safe_load(f)
-
-    return {
-        "system_prompt": system_prompt,
-        "mcp_servers": tools_config.get("mcp_servers", []),
-        "allowed_tools": tools_config.get("allowed_tools", []),
-    }
+from agent.utils.skill_loader import (
+    format_completed_milestones,
+    load_skill_config,
+    normalize_skill_name,
+)
+from agent.utils.tool_parser import format_available_tools, format_execution_context
 
 
 def node(state: AgentState) -> AgentState:
-    """Loads the assigned skill's configuration and sets up the active context."""
-    current_milestone = state["milestones"][state["current_idx"]]
+    """Load skill configuration and set up execution context.
+
+    Args:
+        state: Current agent state with milestones
+
+    Returns:
+        Updated state with active_skill_context set
+    """
+    milestones = state.get("milestones", [])
+    current_idx = state.get("current_idx", 0)
+
+    # Check if we have valid milestones
+    if not milestones or current_idx >= len(milestones):
+        return {
+            **state,
+            "active_skill_context": "No active milestone. Waiting for planning.",
+        }
+
+    current_milestone = milestones[current_idx]
     skill_name = current_milestone.assigned_skill
 
     try:
-        skill_config = load_skill_data(skill_name)
+        # Load skill configuration (normalizes skill name internally)
+        skill_config = load_skill_config(skill_name)
 
-        # Create the active skill context
-        skill_context = f"""
-You are operating with the "{skill_name}" skill.
+        # Build comprehensive skill context
+        skill_context = f"""You are the {skill_config.name} specialist.
 
-{skill_config["system_prompt"]}
+{skill_config.description}
 
-Current milestone: {current_milestone.description}
+CURRENT MILESTONE:
+Description: {current_milestone.description}
+Success Criteria: {current_milestone.success_criteria}
 
-Available MCP servers: {", ".join(skill_config["mcp_servers"])}
-Allowed tools: {", ".join(skill_config["allowed_tools"])}
+EXECUTION CONTEXT:
+{format_execution_context(state.get("execution_context", {}))}
 
-Focus on completing this milestone using the available tools and your expertise.
+COMPLETED MILESTONES:
+{format_completed_milestones(milestones, current_idx)}
+
+AVAILABLE TOOLS:
+{format_available_tools()}
+
+INSTRUCTIONS:
+- Focus on completing the current milestone using available tools
+- Follow the success criteria when determining completion
+- Use execution context to build upon previous work
+- If tools fail, document what went wrong for retry
+
+SKILL GUIDANCE:
+{skill_config.content[:500]}...
 """
 
-        return {**state, "active_skill_context": skill_context.strip()}
+        return {
+            **state,
+            "active_skill_context": skill_context.strip(),
+            "retry_count": 0,  # Reset retry count for new milestone
+        }
 
     except FileNotFoundError:
-        # If skill configuration is missing, create a basic context
-        skill_context = f"""
-You are operating with the "{skill_name}" skill.
+        # Handle missing skill configuration gracefully
+        fallback_context = f"""You are operating with the "{skill_name}" skill.
 
-Current milestone: {current_milestone.description}
+CURRENT MILESTONE:
+Description: {current_milestone.description}
+Success Criteria: {current_milestone.success_criteria}
 
-Note: Skill configuration files not found. Using basic capabilities.
+COMPLETED MILESTONES:
+{format_completed_milestones(milestones, current_idx)}
+
+AVAILABLE TOOLS:
+{format_available_tools()}
+
+Note: Skill configuration files not found for '{normalize_skill_name(skill_name)}'. 
+Using basic capabilities. You should still attempt to complete the milestone.
 """
 
-        return {**state, "active_skill_context": skill_context.strip()}
+        return {
+            **state,
+            "active_skill_context": fallback_context.strip(),
+            "retry_count": 0,
+        }
+
+    except Exception as e:
+        # Handle any other errors
+        error_context = f"""You are operating with the "{skill_name}" skill.
+
+CURRENT MILESTONE: {current_milestone.description}
+
+ERROR LOADING SKILL: {str(e)}
+
+Please proceed with basic capabilities to complete the milestone.
+"""
+
+        return {
+            **state,
+            "active_skill_context": error_context.strip(),
+            "retry_count": 0,
+        }
