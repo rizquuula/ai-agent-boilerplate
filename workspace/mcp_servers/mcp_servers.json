@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "filesystem": {
+    "localtime_mcp": {
       "command": "uvx",
       "args": [
         "workspace/mcp_servers/localtime_mcp"

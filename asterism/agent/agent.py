@@ -54,13 +54,15 @@ class Agent:
     def _get_checkpointer(self) -> SqliteSaver:
         """Get or create the SQLite checkpointer."""
         if self._checkpointer is None:
-            # Ensure directory exists
             from pathlib import Path
 
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
 
-            # Create connection and checkpointer
-            self._conn = sqlite3.connect(self.db_path)
+            # Use check_same_thread=False for multi-threaded environments
+            if self.db_path == ":memory:":
+                self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            else:
+                self._conn = sqlite3.connect(self.db_path)
             self._checkpointer = SqliteSaver(self._conn)
         return self._checkpointer
 
@@ -85,6 +87,8 @@ class Agent:
 
         # Define edges
         workflow.add_edge(START, "planner_node")
+        workflow.add_edge("planner_node", "executor_node")
+        workflow.add_edge("executor_node", "evaluator_node")
         workflow.add_conditional_edges(
             "evaluator_node",
             self._make_routing_function(),
