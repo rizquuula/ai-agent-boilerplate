@@ -8,3 +8,5 @@ build/
 plans/
 
 .kilocode
+.vscode
+.checkpoints
