@@ -17,9 +17,9 @@ def mock_llm():
 
     # Default invoke_structured returns appropriate model
     def mock_invoke_structured(prompt, schema, **kwargs):
-        if schema.__name__ == "Plan":
-            from asterism.agent.models import Plan, Task
+        from asterism.agent.models import EvaluationDecision, EvaluationResult, Plan, Task
 
+        if schema.__name__ == "Plan":
             return Plan(
                 tasks=[
                     Task(
@@ -31,6 +31,11 @@ def mock_llm():
                     )
                 ],
                 reasoning="Mock reasoning",
+            )
+        elif schema.__name__ == "EvaluationResult":
+            return EvaluationResult(
+                decision=EvaluationDecision.CONTINUE,
+                reasoning="Mock evaluation - execution on track",
             )
         return MagicMock()
 

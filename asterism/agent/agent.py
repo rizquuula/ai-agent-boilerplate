@@ -127,10 +127,11 @@ class Agent:
         return _executor_node
 
     def _make_evaluator_node(self):
-        """Create evaluator node."""
+        """Create evaluator node with LLM dependency."""
+        llm = self.llm
 
         def _evaluator_node(state: AgentState) -> AgentState:
-            return evaluator_node(state)
+            return evaluator_node(llm, state)
 
         return _evaluator_node
 

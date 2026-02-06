@@ -4,7 +4,7 @@ from typing import TypedDict
 
 from langchain_core.messages import BaseMessage
 
-from asterism.agent.models import AgentResponse, Plan, TaskResult
+from asterism.agent.models import AgentResponse, EvaluationResult, Plan, TaskResult
 
 
 class AgentState(TypedDict):
@@ -15,5 +15,6 @@ class AgentState(TypedDict):
     plan: Plan | None
     current_task_index: int
     execution_results: list[TaskResult]
+    evaluation_result: EvaluationResult | None
     final_response: AgentResponse | None
     error: str | None

@@ -1,9 +1,18 @@
 """Pydantic models for agent state and responses."""
 
 from datetime import datetime
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+
+class EvaluationDecision(str, Enum):
+    """Decision options for the evaluator."""
+
+    CONTINUE = "continue"
+    REPLAN = "replan"
+    FINALIZE = "finalize"
 
 
 class Task(BaseModel):
@@ -37,6 +46,23 @@ class TaskResult(BaseModel):
     result: Any = Field(default=None, description="Result data from the task")
     error: str | None = Field(default=None, description="Error message if failed")
     timestamp: datetime = Field(default_factory=datetime.now, description="When the task completed")
+
+
+class EvaluationResult(BaseModel):
+    """Result of evaluating execution progress."""
+
+    decision: EvaluationDecision = Field(
+        ..., description="Decision: continue, replan, or finalize"
+    )
+    reasoning: str = Field(..., description="Explanation of why this decision was made")
+    context_updates: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional context updates to pass to next node"
+    )
+    suggested_changes: str | None = Field(
+        default=None,
+        description="If replanning, suggestions for what to change"
+    )
 
 
 class AgentResponse(BaseModel):

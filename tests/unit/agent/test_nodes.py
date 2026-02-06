@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-from asterism.agent.models import Plan, Task, TaskResult
+from asterism.agent.models import EvaluationDecision, EvaluationResult, Plan, Task, TaskResult
 from asterism.agent.nodes import evaluator_node, executor_node, finalizer_node, planner_node, should_continue
 from asterism.agent.state import AgentState
 
@@ -190,11 +190,19 @@ class TestExecutorNode:
 class TestEvaluatorNode:
     """Tests for evaluator_node."""
 
-    def test_evaluator_node_continue_on_success(self):
-        """Test evaluator_node returns continue when last task succeeded."""
+    def test_evaluator_node_with_llm_decision(self, mock_llm):
+        """Test evaluator_node uses LLM to make decision."""
+        def mock_evaluator(prompt, schema, **kwargs):
+            return EvaluationResult(
+                decision=EvaluationDecision.CONTINUE,
+                reasoning="Execution on track",
+            )
+        
+        mock_llm.invoke_structured.side_effect = mock_evaluator
+
         state: AgentState = {
             "session_id": "test",
-            "messages": [],
+            "messages": [MagicMock(content="Test request")],
             "plan": Plan(tasks=[Task(id="t1", description="t", tool_call=None)], reasoning="r"),
             "current_task_index": 1,
             "execution_results": [TaskResult(task_id="t1", success=True, result="ok", error=None)],
@@ -202,16 +210,28 @@ class TestEvaluatorNode:
             "error": None,
         }
 
-        result = evaluator_node(state)
+        result = evaluator_node(mock_llm, state)
 
-        # Should return state (continue to executor)
         assert isinstance(result, dict)
+        assert result["evaluation_result"] is not None
+        assert result["evaluation_result"].decision == EvaluationDecision.CONTINUE
+        assert result["evaluation_result"].reasoning == "Execution on track"
+        mock_llm.invoke_structured.assert_called_once()
 
-    def test_evaluator_node_replan_on_failure(self):
-        """Test evaluator_node returns state with error when task failed."""
+    def test_evaluator_node_replan_decision(self, mock_llm):
+        """Test evaluator_node triggers replanning when LLM decides to replan."""
+        def mock_evaluator(prompt, schema, **kwargs):
+            return EvaluationResult(
+                decision=EvaluationDecision.REPLAN,
+                reasoning="Unexpected result requires new approach",
+                suggested_changes="Use different tool",
+            )
+        
+        mock_llm.invoke_structured.side_effect = mock_evaluator
+
         state: AgentState = {
             "session_id": "test",
-            "messages": [],
+            "messages": [MagicMock(content="Test request")],
             "plan": Plan(tasks=[Task(id="t1", description="t", tool_call=None)], reasoning="r"),
             "current_task_index": 1,
             "execution_results": [TaskResult(task_id="t1", success=False, result=None, error="failed")],
@@ -219,10 +239,73 @@ class TestEvaluatorNode:
             "error": None,
         }
 
-        result = evaluator_node(state)
+        result = evaluator_node(mock_llm, state)
 
         assert isinstance(result, dict)
-        assert result["error"] is None  # Error is in the result, not state
+        assert result["evaluation_result"].decision == EvaluationDecision.REPLAN
+        assert result["error"] is not None
+        assert "Replanning needed" in result["error"]
+        # Check that replanning context was added to messages
+        assert len(result["messages"]) > len(state["messages"])
+
+    def test_evaluator_node_finalize_decision(self, mock_llm):
+        """Test evaluator_node handles finalize decision."""
+        def mock_evaluator(prompt, schema, **kwargs):
+            return EvaluationResult(
+                decision=EvaluationDecision.FINALIZE,
+                reasoning="Goals achieved early",
+            )
+        
+        mock_llm.invoke_structured.side_effect = mock_evaluator
+
+        state: AgentState = {
+            "session_id": "test",
+            "messages": [MagicMock(content="Test request")],
+            "plan": Plan(
+                tasks=[
+                    Task(id="t1", description="t1", tool_call=None),
+                    Task(id="t2", description="t2", tool_call=None),
+                ],
+                reasoning="r",
+            ),
+            "current_task_index": 1,
+            "execution_results": [TaskResult(task_id="t1", success=True, result="complete data", error=None)],
+            "final_response": None,
+            "error": None,
+        }
+
+        result = evaluator_node(mock_llm, state)
+
+        assert isinstance(result, dict)
+        assert result["evaluation_result"].decision == EvaluationDecision.FINALIZE
+        assert result["error"] is None  # No error for finalize
+
+    def test_evaluator_node_fallback_on_llm_error(self, mock_llm):
+        """Test evaluator_node falls back to logic when LLM fails."""
+        mock_llm.invoke_structured.side_effect = Exception("LLM error")
+
+        state: AgentState = {
+            "session_id": "test",
+            "messages": [MagicMock(content="Test request")],
+            "plan": Plan(
+                tasks=[
+                    Task(id="t1", description="t1", tool_call=None),
+                    Task(id="t2", description="t2", tool_call=None),
+                ],
+                reasoning="r",
+            ),
+            "current_task_index": 1,  # One task done, one remaining
+            "execution_results": [TaskResult(task_id="t1", success=True, result="ok", error=None)],
+            "final_response": None,
+            "error": None,
+        }
+
+        result = evaluator_node(mock_llm, state)
+
+        assert isinstance(result, dict)
+        assert result["evaluation_result"] is not None
+        assert result["evaluation_result"].decision == EvaluationDecision.CONTINUE  # Fallback continues since more tasks remain
+        assert "LLM evaluation failed" in result["evaluation_result"].reasoning
 
     def test_evaluator_node_finalize_complete(self):
         """Test should_continue signals finalizer when all tasks complete."""
@@ -270,6 +353,44 @@ class TestEvaluatorNode:
             "execution_results": [],
             "final_response": None,
             "error": "Something went wrong",
+        }
+
+        route = should_continue(state)
+        assert route == "planner_node"
+
+    def test_should_continue_uses_evaluation_result(self):
+        """Test should_continue uses LLM evaluation result when available."""
+        state: AgentState = {
+            "session_id": "test",
+            "messages": [],
+            "plan": Plan(tasks=[Task(id="t1", description="t", tool_call=None)], reasoning="r"),
+            "current_task_index": 1,
+            "execution_results": [],
+            "final_response": None,
+            "error": None,
+            "evaluation_result": EvaluationResult(
+                decision=EvaluationDecision.FINALIZE,
+                reasoning="Early completion",
+            ),
+        }
+
+        route = should_continue(state)
+        assert route == "finalizer_node"
+
+    def test_should_continue_replan_from_evaluation(self):
+        """Test should_continue routes to planner when evaluation says replan."""
+        state: AgentState = {
+            "session_id": "test",
+            "messages": [],
+            "plan": Plan(tasks=[Task(id="t1", description="t", tool_call=None)], reasoning="r"),
+            "current_task_index": 1,
+            "execution_results": [],
+            "final_response": None,
+            "error": None,
+            "evaluation_result": EvaluationResult(
+                decision=EvaluationDecision.REPLAN,
+                reasoning="Need different approach",
+            ),
         }
 
         route = should_continue(state)
