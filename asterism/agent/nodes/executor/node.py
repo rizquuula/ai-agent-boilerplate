@@ -1,4 +1,4 @@
-"""Executor node for running tasks."""
+"""Executor node implementation."""
 
 from asterism.agent.models import LLMUsage, TaskResult
 from asterism.agent.state import AgentState

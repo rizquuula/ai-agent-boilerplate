@@ -1,4 +1,4 @@
-"""Finalizer node for generating the final response."""
+"""Finalizer node implementation."""
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -6,17 +6,8 @@ from asterism.agent.models import AgentResponse, LLMUsage
 from asterism.agent.state import AgentState
 from asterism.llm.base import BaseLLMProvider
 
-# Node-specific system prompt - this is combined with SOUL.md + AGENT.md
-FINALIZER_SYSTEM_PROMPT = """You are a helpful assistant that synthesizes task execution results
-into a clear, concise response for the user.
-
-Provide a natural language answer that:
-- Directly addresses the user's original request
-- Summarizes what was accomplished
-- Highlights key findings or outcomes
-- Is friendly and professional
-
-Do not include technical details like task IDs or execution traces in the message - those are provided separately."""
+from .prompts import FINALIZER_SYSTEM_PROMPT
+from .utils import get_user_request
 
 
 def finalizer_node(llm: BaseLLMProvider, state: AgentState) -> AgentState:
@@ -69,7 +60,7 @@ def finalizer_node(llm: BaseLLMProvider, state: AgentState) -> AgentState:
             # Summarize results for LLM
             results_summary = "\n".join(f"Task {r.task_id}: {r.result}" for r in execution_results)
 
-            user_prompt = f"""Original user request: {_get_user_request(state)}
+            user_prompt = f"""Original user request: {get_user_request(state)}
 
 Execution results:
 {results_summary}
@@ -115,14 +106,3 @@ Create a response for the user."""
         new_state["llm_usage"] = state.get("llm_usage", []) + [usage]
 
     return new_state
-
-
-def _get_user_request(state: AgentState) -> str:
-    """Extract the original user request from state messages."""
-    messages = state.get("messages", [])
-    if messages:
-        # Find the first human message
-        for msg in messages:
-            if isinstance(msg, HumanMessage):
-                return msg.content
-    return "No user request found"

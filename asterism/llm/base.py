@@ -6,7 +6,7 @@ from typing import Any
 
 from langchain_core.messages import BaseMessage
 
-from asterism.core.prompt_loader import SystemPromptLoader
+from asterism.agent.prompt_loader import SystemPromptLoader
 
 
 @dataclass

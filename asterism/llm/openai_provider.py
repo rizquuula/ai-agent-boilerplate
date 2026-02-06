@@ -6,7 +6,7 @@ from langchain_core.messages import BaseMessage
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_openai import ChatOpenAI
 
-from asterism.core.prompt_loader import SystemPromptLoader
+from asterism.agent.prompt_loader import SystemPromptLoader
 
 from .base import BaseLLMProvider, LLMResponse, StructuredLLMResponse
 

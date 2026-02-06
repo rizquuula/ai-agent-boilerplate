@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
-from asterism.core.prompt_loader import SystemPromptLoader
+from asterism.agent.prompt_loader import SystemPromptLoader
 
 
 def test_load_default_paths():

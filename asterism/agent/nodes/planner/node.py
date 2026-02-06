@@ -1,6 +1,4 @@
-"""Planner node for creating and updating task plans."""
-
-from typing import Any
+"""Planner node implementation."""
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -9,75 +7,8 @@ from asterism.agent.state import AgentState
 from asterism.llm.base import BaseLLMProvider
 from asterism.mcp.executor import MCPExecutor
 
-
-def _generate_task_id(index: int, description: str) -> str:
-    """Generate a unique task ID."""
-    return f"task_{index}_{description.lower().replace(' ', '_')[:30]}"
-
-
-def _format_tools_context(tool_schemas: dict[str, list[dict[str, Any]]]) -> str:
-    """Format tool schemas for inclusion in LLM prompt."""
-    if not tool_schemas:
-        return "No MCP tools available."
-
-    lines = []
-    for server_name, tools in tool_schemas.items():
-        if not tools:
-            continue
-
-        lines.append(f"\n## Server: {server_name}")
-        for tool in tools:
-            name = tool.get("name", "unknown")
-            description = tool.get("description", "No description")
-            input_schema = tool.get("inputSchema", {})
-
-            lines.append(f"\n### {server_name}:{name}")
-            lines.append(f"Description: {description}")
-
-            if input_schema:
-                properties = input_schema.get("properties", {})
-                required = input_schema.get("required", [])
-
-                if properties:
-                    lines.append("Parameters:")
-                    for param_name, param_info in properties.items():
-                        param_type = param_info.get("type", "any")
-                        param_desc = param_info.get("description", "")
-                        is_required = " (required)" if param_name in required else ""
-                        lines.append(f"  - {param_name} ({param_type}){is_required}: {param_desc}")
-
-    return "\n".join(lines)
-
-
-# Node-specific system prompt - this is combined with SOUL.md + AGENT.md
-PLANNER_SYSTEM_PROMPT = """You are a task planning agent. Create a detailed plan to accomplish the user's request.
-
-You have access to MCP tools. When planning tasks, specify tool calls in format:
-- tool_call: "server_name:tool_name"
-- tool_input: dictionary of parameters for the tool
-
-You can also include LLM reasoning tasks (no tool_call) for analysis or synthesis.
-
-Return a JSON with:
-{
-  "reasoning": "explanation of your approach",
-  "tasks": [
-    {
-      "id": "unique_task_id",
-      "description": "what this task does",
-      "tool_call": "server:tool" or null,
-      "tool_input": {} or null,
-      "depends_on": ["task_id_1", ...]  // tasks that must complete first
-    }
-  ]
-}
-
-Guidelines:
-- Order tasks logically, respecting dependencies
-- Break complex tasks into smaller steps
-- Use available MCP tools when appropriate
-- Include verification tasks if needed
-"""
+from .prompts import PLANNER_SYSTEM_PROMPT
+from .utils import format_tools_context, generate_task_id
 
 
 def planner_node(llm: BaseLLMProvider, mcp_executor: MCPExecutor, state: AgentState) -> AgentState:
@@ -100,7 +31,7 @@ def planner_node(llm: BaseLLMProvider, mcp_executor: MCPExecutor, state: AgentSt
     # Get available MCP tools
     try:
         tool_schemas = mcp_executor.get_tool_schemas()
-        tools_context = _format_tools_context(tool_schemas)
+        tools_context = format_tools_context(tool_schemas)
     except Exception as e:
         tools_context = f"Error getting tool information: {str(e)}"
 
@@ -152,7 +83,7 @@ Create a plan to accomplish this request using the available tools."""
         # Ensure all tasks have IDs
         for i, task in enumerate(plan.tasks):
             if not task.id:
-                task.id = _generate_task_id(i, task.description)
+                task.id = generate_task_id(i, task.description)
 
         # Update state
         new_state = state.copy()
