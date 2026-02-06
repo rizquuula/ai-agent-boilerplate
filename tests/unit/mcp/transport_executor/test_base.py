@@ -1,5 +1,6 @@
 """Test MCP base transport abstract class."""
 
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -68,6 +69,9 @@ class ConcreteTransport(BaseTransport):
 
     def list_tools(self) -> list[str]:
         return ["tool1", "tool2"]
+    
+    def get_tool_schemas(self) -> list[dict[str, Any]]:
+        return [{}]
 
     def is_alive(self) -> bool:
         return self._running

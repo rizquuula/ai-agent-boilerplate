@@ -10,7 +10,7 @@ from asterism.agent.state import AgentState
 class TestPlannerNode:
     """Tests for planner_node."""
 
-    def test_planner_node_creates_plan(self, mock_llm):
+    def test_planner_node_creates_plan(self, mock_llm, mock_mcp_executor):
         """Test that planner_node creates a plan."""
         state: AgentState = {
             "session_id": "test",
@@ -22,7 +22,7 @@ class TestPlannerNode:
             "error": None,
         }
 
-        result = planner_node(mock_llm, state)
+        result = planner_node(mock_llm, mock_mcp_executor, state)
 
         assert result["plan"] is not None
         assert isinstance(result["plan"], Plan)
@@ -31,7 +31,7 @@ class TestPlannerNode:
         assert result["current_task_index"] == 0
         assert result["error"] is None
 
-    def test_planner_node_handles_error(self, mock_llm):
+    def test_planner_node_handles_error(self, mock_llm, mock_mcp_executor):
         """Test that planner_node handles errors gracefully."""
         mock_llm.invoke_structured.side_effect = Exception("LLM error")
 
@@ -45,7 +45,7 @@ class TestPlannerNode:
             "error": None,
         }
 
-        result = planner_node(mock_llm, state)
+        result = planner_node(mock_llm, mock_mcp_executor, state)
 
         assert result["error"] is not None
         assert "Planning failed" in result["error"]

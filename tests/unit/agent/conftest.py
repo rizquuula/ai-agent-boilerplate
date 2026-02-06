@@ -53,4 +53,19 @@ def mock_mcp_executor():
     }
     executor.get_available_tools.return_value = {"test": ["tool"]}
     executor.validate_tool_call.return_value = True
+    executor.get_tool_schemas.return_value = {
+        "test": [
+            {
+                "name": "tool",
+                "description": "A test tool",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "param": {"type": "string", "description": "A parameter"}
+                    },
+                    "required": ["param"],
+                },
+            }
+        ]
+    }
     return executor
