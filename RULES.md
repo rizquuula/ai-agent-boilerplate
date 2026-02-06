@@ -4,4 +4,6 @@ I am a nerd. I love over-engineering because it is perfect for building products
 
 Please break down tasks into smaller subtasks for better implementation.
 
-At the end of the feature implementation, please make a commit with the prefix [ai-auto]. This will help me track feature implementations.
+At the end of the feature implementation:
+1. Do run auto_format_ruff.sh
+2. Please make a commit with the prefix [ai-auto]. This will help me track feature implementations.

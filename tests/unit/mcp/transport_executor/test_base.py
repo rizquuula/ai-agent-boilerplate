@@ -69,7 +69,7 @@ class ConcreteTransport(BaseTransport):
 
     def list_tools(self) -> list[str]:
         return ["tool1", "tool2"]
-    
+
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         return [{}]
 

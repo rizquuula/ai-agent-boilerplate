@@ -15,12 +15,23 @@ def mock_llm():
     # Default invoke returns simple string
     llm.invoke.return_value = "Mock LLM response"
 
-    # Default invoke_structured returns appropriate model
+    # Default invoke_with_usage returns mock response with usage
+    from asterism.llm.base import LLMResponse
+
+    llm.invoke_with_usage.return_value = LLMResponse(
+        content="Mock LLM response",
+        prompt_tokens=1,
+        completion_tokens=1,
+        total_tokens=2,
+    )
+
+    # Default invoke_structured returns StructuredLLMResponse with parsed model
     def mock_invoke_structured(prompt, schema, **kwargs):
         from asterism.agent.models import EvaluationDecision, EvaluationResult, Plan, Task
+        from asterism.llm.base import StructuredLLMResponse
 
         if schema.__name__ == "Plan":
-            return Plan(
+            parsed = Plan(
                 tasks=[
                     Task(
                         id="task_1",
@@ -33,11 +44,20 @@ def mock_llm():
                 reasoning="Mock reasoning",
             )
         elif schema.__name__ == "EvaluationResult":
-            return EvaluationResult(
+            parsed = EvaluationResult(
                 decision=EvaluationDecision.CONTINUE,
                 reasoning="Mock evaluation - execution on track",
             )
-        return MagicMock()
+        else:
+            parsed = MagicMock()
+
+        return StructuredLLMResponse(
+            content=str(parsed),
+            parsed=parsed,
+            prompt_tokens=1,
+            completion_tokens=1,
+            total_tokens=2,
+        )
 
     llm.invoke_structured.side_effect = mock_invoke_structured
     return llm
@@ -65,9 +85,7 @@ def mock_mcp_executor():
                 "description": "A test tool",
                 "inputSchema": {
                     "type": "object",
-                    "properties": {
-                        "param": {"type": "string", "description": "A parameter"}
-                    },
+                    "properties": {"param": {"type": "string", "description": "A parameter"}},
                     "required": ["param"],
                 },
             }

@@ -1,13 +1,13 @@
 """Pydantic models for agent state and responses."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class EvaluationDecision(str, Enum):
+class EvaluationDecision(StrEnum):
     """Decision options for the evaluator."""
 
     CONTINUE = "continue"
@@ -38,6 +38,25 @@ class Plan(BaseModel):
     reasoning: str = Field(..., description="Explanation of the plan's approach")
 
 
+class LLMUsage(BaseModel):
+    """LLM token usage for a single call."""
+
+    prompt_tokens: int = Field(..., description="Number of tokens in the prompt")
+    completion_tokens: int = Field(..., description="Number of tokens in the completion")
+    total_tokens: int = Field(..., description="Total tokens used")
+    model: str = Field(..., description="Model name used for the call")
+    node_name: str = Field(..., description="Node that made the call (planner, executor, evaluator, finalizer)")
+
+
+class UsageSummary(BaseModel):
+    """Summary of total LLM usage across all calls."""
+
+    total_prompt_tokens: int = Field(default=0, description="Total prompt tokens across all calls")
+    total_completion_tokens: int = Field(default=0, description="Total completion tokens across all calls")
+    total_tokens: int = Field(default=0, description="Total tokens across all calls")
+    calls_by_node: dict[str, int] = Field(default_factory=dict, description="Number of calls per node type")
+
+
 class TaskResult(BaseModel):
     """Result of executing a single task."""
 
@@ -46,23 +65,18 @@ class TaskResult(BaseModel):
     result: Any = Field(default=None, description="Result data from the task")
     error: str | None = Field(default=None, description="Error message if failed")
     timestamp: datetime = Field(default_factory=datetime.now, description="When the task completed")
+    llm_usage: LLMUsage | None = Field(default=None, description="LLM usage if task used LLM")
 
 
 class EvaluationResult(BaseModel):
     """Result of evaluating execution progress."""
 
-    decision: EvaluationDecision = Field(
-        ..., description="Decision: continue, replan, or finalize"
-    )
+    decision: EvaluationDecision = Field(..., description="Decision: continue, replan, or finalize")
     reasoning: str = Field(..., description="Explanation of why this decision was made")
     context_updates: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Optional context updates to pass to next node"
+        default_factory=dict, description="Optional context updates to pass to next node"
     )
-    suggested_changes: str | None = Field(
-        default=None,
-        description="If replanning, suggestions for what to change"
-    )
+    suggested_changes: str | None = Field(default=None, description="If replanning, suggestions for what to change")
 
 
 class AgentResponse(BaseModel):
@@ -73,3 +87,6 @@ class AgentResponse(BaseModel):
         ..., description="Full execution history with task details and results"
     )
     plan_used: Plan | None = Field(default=None, description="The plan that was executed")
+    total_usage: UsageSummary = Field(
+        default_factory=UsageSummary, description="Total LLM token usage across all nodes"
+    )

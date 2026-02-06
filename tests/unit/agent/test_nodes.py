@@ -192,12 +192,21 @@ class TestEvaluatorNode:
 
     def test_evaluator_node_with_llm_decision(self, mock_llm):
         """Test evaluator_node uses LLM to make decision."""
+        from asterism.llm.base import StructuredLLMResponse
+
         def mock_evaluator(prompt, schema, **kwargs):
-            return EvaluationResult(
+            parsed = EvaluationResult(
                 decision=EvaluationDecision.CONTINUE,
                 reasoning="Execution on track",
             )
-        
+            return StructuredLLMResponse(
+                content=str(parsed),
+                parsed=parsed,
+                prompt_tokens=1,
+                completion_tokens=1,
+                total_tokens=2,
+            )
+
         mock_llm.invoke_structured.side_effect = mock_evaluator
 
         state: AgentState = {
@@ -220,13 +229,22 @@ class TestEvaluatorNode:
 
     def test_evaluator_node_replan_decision(self, mock_llm):
         """Test evaluator_node triggers replanning when LLM decides to replan."""
+        from asterism.llm.base import StructuredLLMResponse
+
         def mock_evaluator(prompt, schema, **kwargs):
-            return EvaluationResult(
+            parsed = EvaluationResult(
                 decision=EvaluationDecision.REPLAN,
                 reasoning="Unexpected result requires new approach",
                 suggested_changes="Use different tool",
             )
-        
+            return StructuredLLMResponse(
+                content=str(parsed),
+                parsed=parsed,
+                prompt_tokens=1,
+                completion_tokens=1,
+                total_tokens=2,
+            )
+
         mock_llm.invoke_structured.side_effect = mock_evaluator
 
         state: AgentState = {
@@ -250,12 +268,21 @@ class TestEvaluatorNode:
 
     def test_evaluator_node_finalize_decision(self, mock_llm):
         """Test evaluator_node handles finalize decision."""
+        from asterism.llm.base import StructuredLLMResponse
+
         def mock_evaluator(prompt, schema, **kwargs):
-            return EvaluationResult(
+            parsed = EvaluationResult(
                 decision=EvaluationDecision.FINALIZE,
                 reasoning="Goals achieved early",
             )
-        
+            return StructuredLLMResponse(
+                content=str(parsed),
+                parsed=parsed,
+                prompt_tokens=1,
+                completion_tokens=1,
+                total_tokens=2,
+            )
+
         mock_llm.invoke_structured.side_effect = mock_evaluator
 
         state: AgentState = {
@@ -304,7 +331,9 @@ class TestEvaluatorNode:
 
         assert isinstance(result, dict)
         assert result["evaluation_result"] is not None
-        assert result["evaluation_result"].decision == EvaluationDecision.CONTINUE  # Fallback continues since more tasks remain
+        assert (
+            result["evaluation_result"].decision == EvaluationDecision.CONTINUE
+        )  # Fallback continues since more tasks remain
         assert "LLM evaluation failed" in result["evaluation_result"].reasoning
 
     def test_evaluator_node_finalize_complete(self):
@@ -440,7 +469,7 @@ class TestFinalizerNode:
 
     def test_finalizer_node_llm_failure(self, mock_llm):
         """Test finalizer_node fallback when LLM fails."""
-        mock_llm.invoke.side_effect = Exception("LLM error")
+        mock_llm.invoke_with_usage.side_effect = Exception("LLM error")
 
         state: AgentState = {
             "session_id": "test",

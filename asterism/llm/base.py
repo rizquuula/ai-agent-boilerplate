@@ -1,11 +1,30 @@
 """Base LLM provider interface for the agent framework."""
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.messages import BaseMessage
 
 from asterism.core.prompt_loader import SystemPromptLoader
+
+
+@dataclass
+class LLMResponse:
+    """Response from LLM including content and usage metadata."""
+
+    content: str
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+
+@dataclass
+class StructuredLLMResponse(LLMResponse):
+    """Response from LLM structured output including parsed model and usage."""
+
+    parsed: Any = None
+    """The parsed Pydantic model instance."""
 
 
 class BaseLLMProvider(ABC):
@@ -65,12 +84,30 @@ class BaseLLMProvider(ABC):
         pass
 
     @abstractmethod
+    def invoke_with_usage(
+        self,
+        prompt: str | list[BaseMessage],
+        **kwargs,
+    ) -> LLMResponse:
+        """
+        Invoke the LLM and return response with token usage.
+
+        Args:
+            prompt: Either a text prompt (str) or a list of messages.
+            **kwargs: Additional provider-specific parameters.
+
+        Returns:
+            LLMResponse containing content and usage metadata.
+        """
+        pass
+
+    @abstractmethod
     def invoke_structured(
         self,
         prompt: str | list[BaseMessage],
         schema: type,
         **kwargs,
-    ) -> Any:
+    ) -> StructuredLLMResponse:
         """
         Invoke the LLM with a structured output request.
 
@@ -84,7 +121,7 @@ class BaseLLMProvider(ABC):
             **kwargs: Additional provider-specific parameters.
 
         Returns:
-            Parsed structured output matching the schema.
+            StructuredLLMResponse containing parsed model and usage metadata.
         """
         pass
 

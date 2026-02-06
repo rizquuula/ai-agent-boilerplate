@@ -1,6 +1,6 @@
 """Executor node for running tasks."""
 
-from asterism.agent.models import TaskResult
+from asterism.agent.models import LLMUsage, TaskResult
 from asterism.agent.state import AgentState
 from asterism.llm.base import BaseLLMProvider
 from asterism.mcp.executor import MCPExecutor
@@ -44,6 +44,7 @@ def executor_node(llm: BaseLLMProvider, mcp_executor: MCPExecutor, state: AgentS
 
     # Execute the task
     result = TaskResult(task_id=task.id, success=False, result=None, error=None)
+    task_usage: LLMUsage | None = None
 
     try:
         if task.tool_call:
@@ -67,10 +68,20 @@ def executor_node(llm: BaseLLMProvider, mcp_executor: MCPExecutor, state: AgentS
             if not task.description:
                 raise ValueError("Task description is required for LLM-only tasks")
 
-            # Use LLM to process
-            llm_output = llm.invoke(task.description)
+            # Use LLM to process with usage tracking
+            llm_response = llm.invoke_with_usage(task.description)
             result.success = True
-            result.result = llm_output
+            result.result = llm_response.content
+
+            # Track LLM usage for this task
+            task_usage = LLMUsage(
+                prompt_tokens=llm_response.prompt_tokens,
+                completion_tokens=llm_response.completion_tokens,
+                total_tokens=llm_response.total_tokens,
+                model=llm.model,
+                node_name="executor_node",
+            )
+            result.llm_usage = task_usage
 
     except Exception as e:
         result.error = str(e)
@@ -81,5 +92,9 @@ def executor_node(llm: BaseLLMProvider, mcp_executor: MCPExecutor, state: AgentS
     new_state["execution_results"] = state.get("execution_results", []) + [result]
     new_state["current_task_index"] = current_index + 1
     new_state["error"] = None if result.success else result.error
+
+    # Add LLM usage to state if this was an LLM task
+    if task_usage:
+        new_state["llm_usage"] = state.get("llm_usage", []) + [task_usage]
 
     return new_state

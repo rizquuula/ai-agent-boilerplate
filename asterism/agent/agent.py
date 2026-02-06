@@ -24,6 +24,7 @@ def _initialize_state(session_id: str, user_message: str) -> AgentState:
         "execution_results": [],
         "final_response": None,
         "error": None,
+        "llm_usage": [],
     }
 
 
@@ -198,11 +199,24 @@ class Agent:
                 "error": "No final response generated",
             }
 
+        # Aggregate LLM usage from all nodes
+        llm_usage_list = final_state.get("llm_usage", [])
+        total_usage = {
+            "total_prompt_tokens": sum(u.prompt_tokens for u in llm_usage_list),
+            "total_completion_tokens": sum(u.completion_tokens for u in llm_usage_list),
+            "total_tokens": sum(u.total_tokens for u in llm_usage_list),
+            "calls_by_node": {},
+        }
+        for usage in llm_usage_list:
+            node = usage.node_name
+            total_usage["calls_by_node"][node] = total_usage["calls_by_node"].get(node, 0) + 1
+
         return {
             "message": response.message,
             "execution_trace": response.execution_trace,
             "plan_used": response.plan_used.model_dump() if response.plan_used else None,
             "session_id": session_id,
+            "total_usage": total_usage,
         }
 
     def clear_session(self, session_id: str) -> None:

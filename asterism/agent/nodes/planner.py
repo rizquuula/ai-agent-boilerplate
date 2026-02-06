@@ -4,7 +4,7 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from asterism.agent.models import Plan
+from asterism.agent.models import LLMUsage, Plan
 from asterism.agent.state import AgentState
 from asterism.llm.base import BaseLLMProvider
 from asterism.mcp.executor import MCPExecutor
@@ -80,9 +80,7 @@ Guidelines:
 """
 
 
-def planner_node(
-    llm: BaseLLMProvider, mcp_executor: MCPExecutor, state: AgentState
-) -> AgentState:
+def planner_node(llm: BaseLLMProvider, mcp_executor: MCPExecutor, state: AgentState) -> AgentState:
     """
     Create or update a plan based on the user request and execution history.
 
@@ -148,7 +146,8 @@ Create a plan to accomplish this request using the available tools."""
             SystemMessage(content=enhanced_system_prompt),
             HumanMessage(content=user_prompt),
         ]
-        plan = llm.invoke_structured(messages, Plan)
+        response = llm.invoke_structured(messages, Plan)
+        plan = response.parsed
 
         # Ensure all tasks have IDs
         for i, task in enumerate(plan.tasks):
@@ -160,6 +159,16 @@ Create a plan to accomplish this request using the available tools."""
         new_state["plan"] = plan
         new_state["current_task_index"] = 0
         new_state["error"] = None
+
+        # Track LLM usage from structured output response
+        usage = LLMUsage(
+            prompt_tokens=response.prompt_tokens,
+            completion_tokens=response.completion_tokens,
+            total_tokens=response.total_tokens,
+            model=llm.model,
+            node_name="planner_node",
+        )
+        new_state["llm_usage"] = state.get("llm_usage", []) + [usage]
 
         return new_state
 

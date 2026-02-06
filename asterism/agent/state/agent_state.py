@@ -4,7 +4,7 @@ from typing import TypedDict
 
 from langchain_core.messages import BaseMessage
 
-from asterism.agent.models import AgentResponse, EvaluationResult, Plan, TaskResult
+from asterism.agent.models import AgentResponse, EvaluationResult, LLMUsage, Plan, TaskResult
 
 
 class AgentState(TypedDict):
@@ -18,3 +18,4 @@ class AgentState(TypedDict):
     evaluation_result: EvaluationResult | None
     final_response: AgentResponse | None
     error: str | None
+    llm_usage: list[LLMUsage]

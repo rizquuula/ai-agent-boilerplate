@@ -1,16 +1,14 @@
 """OpenAI LLM provider implementation."""
 
 import os
-from typing import Any
 
 from langchain_core.messages import BaseMessage
 from langchain_core.output_parsers import PydanticOutputParser
-from langchain_core.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
 
 from asterism.core.prompt_loader import SystemPromptLoader
 
-from .base import BaseLLMProvider
+from .base import BaseLLMProvider, LLMResponse, StructuredLLMResponse
 
 
 class OpenAIProvider(BaseLLMProvider):
@@ -79,12 +77,54 @@ class OpenAIProvider(BaseLLMProvider):
         except Exception as e:
             raise RuntimeError(f"OpenAI API error: {str(e)}")
 
+    def invoke_with_usage(
+        self,
+        prompt: str | list[BaseMessage],
+        **kwargs,
+    ) -> LLMResponse:
+        """
+        Invoke OpenAI LLM and return response with token usage.
+
+        Args:
+            prompt: Either a text prompt (str) or a list of messages.
+            **kwargs: Additional provider-specific parameters.
+
+        Returns:
+            LLMResponse containing content and usage metadata.
+        """
+        # Build full message list with system prompts
+        messages = self._build_messages(prompt, **kwargs)
+
+        try:
+            response = self.client.invoke(messages, **kwargs)
+
+            # Extract usage information if available
+            usage = getattr(response, "usage_metadata", None)
+            if usage:
+                prompt_tokens = usage.get("input_tokens", 0)
+                completion_tokens = usage.get("output_tokens", 0)
+                total_tokens = usage.get("total_tokens", prompt_tokens + completion_tokens)
+            else:
+                # Fallback: estimate tokens (rough approximation)
+                prompt_tokens = 0
+                completion_tokens = 0
+                total_tokens = 0
+
+            return LLMResponse(
+                content=response.content,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+            )
+        except Exception as e:
+            raise RuntimeError(f"OpenAI API error: {str(e)}")
+
     def invoke_structured(
         self,
         prompt: str | list[BaseMessage],
         schema: type,
         **kwargs,
-    ) -> Any:
+    ) -> StructuredLLMResponse:
         """
         Invoke OpenAI LLM with structured output.
 
@@ -98,30 +138,41 @@ class OpenAIProvider(BaseLLMProvider):
             **kwargs: Additional provider-specific parameters.
 
         Returns:
-            Parsed structured output matching the schema.
+            StructuredLLMResponse containing parsed model and usage metadata.
         """
         try:
             # Build full message list with system prompts (SOUL + AGENT)
-            full_messages = self._build_messages(prompt, **kwargs)
+            messages = self._build_messages(prompt, **kwargs)
 
-            # Convert messages to text for the template
-            prompt_text = self._messages_to_text(full_messages)
-
-            # Create output parser
+            # Create output parser for the schema
             parser = PydanticOutputParser(pydantic_object=schema)
 
-            template = PromptTemplate(
-                template="{prompt}\n\n{format_instructions}",
-                input_variables=["prompt"],
-                partial_variables={"format_instructions": parser.get_format_instructions()},
+            # Create a custom chain that captures raw response and usage
+            # We use a simple approach: invoke client directly, then parse
+            raw_response = self.client.invoke(messages, **kwargs)
+
+            # Extract usage information from raw response
+            usage = getattr(raw_response, "usage_metadata", None)
+            if usage:
+                prompt_tokens = usage.get("input_tokens", 0)
+                completion_tokens = usage.get("output_tokens", 0)
+                total_tokens = usage.get("total_tokens", prompt_tokens + completion_tokens)
+            else:
+                prompt_tokens = 0
+                completion_tokens = 0
+                total_tokens = 0
+
+            # Parse the content using the parser
+            content = raw_response.content
+            parsed_result = parser.parse(content)
+
+            return StructuredLLMResponse(
+                content=content,
+                parsed=parsed_result,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
             )
-
-            # Create chain
-            chain = template | self.client | parser
-
-            # Invoke and parse
-            result = chain.invoke({"prompt": prompt_text}, **kwargs)
-            return result
 
         except Exception as e:
             raise RuntimeError(f"OpenAI structured output error: {str(e)}")

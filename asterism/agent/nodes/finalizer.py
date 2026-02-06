@@ -2,7 +2,7 @@
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from asterism.agent.models import AgentResponse
+from asterism.agent.models import AgentResponse, LLMUsage
 from asterism.agent.state import AgentState
 from asterism.llm.base import BaseLLMProvider
 
@@ -52,6 +52,7 @@ def finalizer_node(llm: BaseLLMProvider, state: AgentState) -> AgentState:
 
     # Check if there were any errors
     failed_tasks = [r for r in execution_results if not r.success]
+    usage = None
 
     if failed_tasks:
         # Generate error response
@@ -80,12 +81,21 @@ Create a response for the user."""
                 SystemMessage(content=FINALIZER_SYSTEM_PROMPT),
                 HumanMessage(content=user_prompt),
             ]
-            message = llm.invoke(messages)
+            llm_response = llm.invoke_with_usage(messages)
 
             response = AgentResponse(
-                message=message,
+                message=llm_response.content,
                 execution_trace=execution_trace,
                 plan_used=plan,
+            )
+
+            # Track LLM usage
+            usage = LLMUsage(
+                prompt_tokens=llm_response.prompt_tokens,
+                completion_tokens=llm_response.completion_tokens,
+                total_tokens=llm_response.total_tokens,
+                model=llm.model,
+                node_name="finalizer_node",
             )
         except Exception as e:
             # Fallback if LLM fails
@@ -94,10 +104,15 @@ Create a response for the user."""
                 execution_trace=execution_trace,
                 plan_used=plan,
             )
+            usage = None
 
     new_state = state.copy()
     new_state["final_response"] = response
     new_state["error"] = None
+
+    # Add LLM usage to state if available
+    if usage:
+        new_state["llm_usage"] = state.get("llm_usage", []) + [usage]
 
     return new_state
 

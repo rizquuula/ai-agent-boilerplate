@@ -1,15 +1,16 @@
 """Evaluator node for deciding next steps after task execution."""
 
-from typing import Any, Literal
+from typing import Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from asterism.agent.models import EvaluationDecision, EvaluationResult
+from asterism.agent.models import EvaluationDecision, EvaluationResult, LLMUsage
 from asterism.agent.state import AgentState
 from asterism.llm.base import BaseLLMProvider
 
 # Node-specific system prompt - this is combined with SOUL.md + AGENT.md
-EVALUATOR_SYSTEM_PROMPT = """You are an execution evaluator for an AI agent. Your job is to analyze task execution results and decide the next action.
+EVALUATOR_SYSTEM_PROMPT = """You are an execution evaluator for an AI agent. 
+Your job is to analyze task execution results and decide the next action.
 
 You will receive:
 - The user's original request
@@ -113,9 +114,9 @@ Tasks:
 {_format_execution_results(execution_results)}
 
 === CURRENT CONTEXT ===
-Last task: {last_result.task_id if last_result else 'N/A'}
-Last result: {str(last_result.result)[:200] if last_result and last_result.result else 'N/A'}
-Last error: {last_result.error if last_result and last_result.error else 'None'}
+Last task: {last_result.task_id if last_result else "N/A"}
+Last result: {str(last_result.result)[:200] if last_result and last_result.result else "N/A"}
+Last error: {last_result.error if last_result and last_result.error else "None"}
 
 === DECISION REQUIRED ===
 Based on the execution so far, should we:
@@ -152,11 +153,22 @@ def evaluator_node(llm: BaseLLMProvider, state: AgentState) -> AgentState:
             SystemMessage(content=EVALUATOR_SYSTEM_PROMPT),
             HumanMessage(content=user_prompt),
         ]
-        evaluation = llm.invoke_structured(messages, EvaluationResult)
+        response = llm.invoke_structured(messages, EvaluationResult)
+        evaluation = response.parsed
 
         # Update state with evaluation result
         new_state = state.copy()
         new_state["evaluation_result"] = evaluation
+
+        # Track LLM usage from structured output response
+        usage = LLMUsage(
+            prompt_tokens=response.prompt_tokens,
+            completion_tokens=response.completion_tokens,
+            total_tokens=response.total_tokens,
+            model=llm.model,
+            node_name="evaluator_node",
+        )
+        new_state["llm_usage"] = state.get("llm_usage", []) + [usage]
 
         # If replanning is needed, set error to trigger replanning
         if evaluation.decision == EvaluationDecision.REPLAN:
@@ -166,9 +178,7 @@ def evaluator_node(llm: BaseLLMProvider, state: AgentState) -> AgentState:
                 from langchain_core.messages import AIMessage
 
                 replan_context = f"Previous execution failed. Suggested changes: {evaluation.suggested_changes}"
-                new_state["messages"] = state.get("messages", []) + [
-                    AIMessage(content=f"[Evaluator] {replan_context}")
-                ]
+                new_state["messages"] = state.get("messages", []) + [AIMessage(content=f"[Evaluator] {replan_context}")]
 
         return new_state
 
