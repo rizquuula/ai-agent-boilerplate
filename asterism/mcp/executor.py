@@ -33,7 +33,7 @@ class MCPExecutor:
         self.transports: dict[str, BaseTransport | None] = {}
         self.tool_cache: dict[str, list] = {}
         self.tool_schema_cache: dict[str, list[dict[str, Any]]] = {}
-        
+
         self._log = logging.getLogger(self.__class__.__name__)
 
     def _get_transport(self, server_name: str) -> BaseTransport:

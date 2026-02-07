@@ -1,9 +1,13 @@
 """Executor node implementation."""
 
+import logging
+
 from asterism.agent.models import LLMUsage, TaskResult
 from asterism.agent.state import AgentState
 from asterism.llm.base import BaseLLMProvider
 from asterism.mcp.executor import MCPExecutor
+
+logger = logging.getLogger(__name__)
 
 
 def executor_node(llm: BaseLLMProvider, mcp_executor: MCPExecutor, state: AgentState) -> AgentState:
@@ -46,6 +50,8 @@ def executor_node(llm: BaseLLMProvider, mcp_executor: MCPExecutor, state: AgentS
     result = TaskResult(task_id=task.id, success=False, result=None, error=None)
     task_usage: LLMUsage | None = None
 
+    logger.info(f"Executing task {task.id}: {task.description[:100]}")
+
     try:
         if task.tool_call:
             # Parse tool call: "server_name:tool_name"
@@ -55,14 +61,18 @@ def executor_node(llm: BaseLLMProvider, mcp_executor: MCPExecutor, state: AgentS
             server_name, tool_name = task.tool_call.split(":", 1)
             tool_input = task.tool_input or {}
 
+            logger.debug(f"Tool call: {server_name}:{tool_name}, input: {tool_input}")
+
             # Execute via MCP
             mcp_result = mcp_executor.execute_tool(server_name, tool_name, **tool_input)
 
             if mcp_result["success"]:
                 result.success = True
                 result.result = mcp_result["result"]
+                logger.info(f"Task {task.id} succeeded")
             else:
                 result.error = mcp_result["error"]
+                logger.warning(f"Task {task.id} failed: {result.error}")
         else:
             # LLM-only task
             if not task.description:
@@ -104,6 +114,7 @@ def executor_node(llm: BaseLLMProvider, mcp_executor: MCPExecutor, state: AgentS
     except Exception as e:
         result.error = str(e)
         result.success = False
+        logger.error(f"Task {task.id} execution error: {e}")
 
     # Update state
     new_state = state.copy()

@@ -1,5 +1,7 @@
 """Planner node implementation."""
 
+import logging
+
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from asterism.agent.models import LLMUsage, Plan
@@ -9,6 +11,8 @@ from asterism.mcp.executor import MCPExecutor
 
 from .prompts import PLANNER_SYSTEM_PROMPT
 from .utils import format_tools_context, generate_task_id
+
+logger = logging.getLogger(__name__)
 
 
 def planner_node(llm: BaseLLMProvider, mcp_executor: MCPExecutor, state: AgentState) -> AgentState:
@@ -79,8 +83,19 @@ JSON OUTPUT:"""
             SystemMessage(content=enhanced_system_prompt),
             HumanMessage(content=user_prompt),
         ]
+
+        logger.debug(
+            f"Planner sending messages: {[{'role': type(m).__name__, 'content': m.content[:200]} for m in messages]}"
+        )
+
         response = llm.invoke_structured(messages, Plan)
         plan = response.parsed
+
+        logger.debug(f"Planner received plan: {plan.model_dump() if plan else 'None'}")
+
+        # Validate the plan
+        if not plan or not plan.tasks:
+            raise ValueError("Plan has no tasks")
 
         # Ensure all tasks have IDs
         for i, task in enumerate(plan.tasks):
@@ -103,9 +118,15 @@ JSON OUTPUT:"""
         )
         new_state["llm_usage"] = state.get("llm_usage", []) + [usage]
 
+        logger.info(f"Planner created plan with {len(plan.tasks)} tasks")
         return new_state
 
     except Exception as e:
+        error_msg = f"Planning failed: {str(e)}"
+        logger.error(error_msg)
+
         new_state = state.copy()
-        new_state["error"] = f"Planning failed: {str(e)}"
+        new_state["error"] = error_msg
+        # Add the error to messages for context in case of replanning
+        new_state["messages"] = state.get("messages", []) + [HumanMessage(content=f"[Planning Error] {error_msg}")]
         return new_state

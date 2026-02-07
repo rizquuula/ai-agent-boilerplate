@@ -32,8 +32,8 @@ def test_agent_invoke():
     response = agent.invoke(
         session_id="test-session",
         # user_message="What time is it now?",
-        user_message="Can you read your SOUL.md and tell me what inside?",
-        # user_message="Can you change your name in personality.md from Yui to Yuika?",
+        # user_message="Can you read your SOUL.md and tell me what inside?",
+        user_message="Can you change your name in personality.md from Yui to Yuika?",
     )
 
     agent.close()

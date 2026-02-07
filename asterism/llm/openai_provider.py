@@ -1,6 +1,8 @@
 """OpenAI LLM provider implementation."""
 
 import os
+import re
+import time
 
 from langchain_core.messages import BaseMessage
 from langchain_core.output_parsers import PydanticOutputParser
@@ -119,10 +121,38 @@ class OpenAIProvider(BaseLLMProvider):
         except Exception as e:
             raise RuntimeError(f"OpenAI API error: {str(e)}")
 
+    def _extract_json_from_text(self, text: str) -> str | None:
+        """
+        Extract JSON from text that may contain markdown code blocks or other content.
+
+        Args:
+            text: Raw text that may contain JSON.
+
+        Returns:
+            Extracted JSON string or None if extraction fails.
+        """
+        # Try to find JSON in markdown code blocks
+        json_pattern = r"```(?:json)?\s*([\s\S]*?)\s*```"
+        matches = re.findall(json_pattern, text)
+        if matches:
+            return matches[0].strip()
+
+        # Try to find JSON between curly braces
+        try:
+            start = text.find("{")
+            end = text.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                return text[start : end + 1]
+        except Exception:
+            pass
+
+        return None
+
     def invoke_structured(
         self,
         prompt: str | list[BaseMessage],
         schema: type,
+        max_retries: int = 3,
         **kwargs,
     ) -> StructuredLLMResponse:
         """
@@ -135,47 +165,78 @@ class OpenAIProvider(BaseLLMProvider):
         Args:
             prompt: Either a text prompt (str) or a list of messages.
             schema: Pydantic model or type for structured output.
+            max_retries: Maximum number of retry attempts for parsing failures.
             **kwargs: Additional provider-specific parameters.
 
         Returns:
             StructuredLLMResponse containing parsed model and usage metadata.
         """
-        try:
-            # Build full message list with system prompts (SOUL + AGENT)
-            messages = self._build_messages(prompt, **kwargs)
+        # Build full message list with system prompts (SOUL + AGENT)
+        messages = self._build_messages(prompt, **kwargs)
 
-            # Create output parser for the schema
-            parser = PydanticOutputParser(pydantic_object=schema)
+        # Create output parser for the schema
+        parser = PydanticOutputParser(pydantic_object=schema)
 
-            # Create a custom chain that captures raw response and usage
-            # We use a simple approach: invoke client directly, then parse
-            raw_response = self.client.invoke(messages, **kwargs)
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                # Use JSON mode for structured output (OpenAI-specific)
+                response_format = {"type": "json_object"}
 
-            # Extract usage information from raw response
-            usage = getattr(raw_response, "usage_metadata", None)
-            if usage:
-                prompt_tokens = usage.get("input_tokens", 0)
-                completion_tokens = usage.get("output_tokens", 0)
-                total_tokens = usage.get("total_tokens", prompt_tokens + completion_tokens)
-            else:
-                prompt_tokens = 0
-                completion_tokens = 0
-                total_tokens = 0
+                # Invoke with JSON mode
+                raw_response = self.client.invoke(messages, response_format=response_format, **kwargs)
 
-            # Parse the content using the parser
-            content = raw_response.content
-            parsed_result = parser.parse(content)
+                # Extract usage information from raw response
+                usage = getattr(raw_response, "usage_metadata", None)
+                if usage:
+                    prompt_tokens = usage.get("input_tokens", 0)
+                    completion_tokens = usage.get("output_tokens", 0)
+                    total_tokens = usage.get("total_tokens", prompt_tokens + completion_tokens)
+                else:
+                    prompt_tokens = 0
+                    completion_tokens = 0
+                    total_tokens = 0
 
-            return StructuredLLMResponse(
-                content=content,
-                parsed=parsed_result,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                total_tokens=total_tokens,
-            )
+                # Parse the content using the parser
+                content = raw_response.content
 
-        except Exception as e:
-            raise RuntimeError(f"OpenAI structured output error: {str(e)}")
+                try:
+                    parsed_result = parser.parse(content)
+                except Exception as parse_error:
+                    # Try to extract JSON from markdown or other formatting
+                    extracted_json = self._extract_json_from_text(content)
+                    if extracted_json:
+                        try:
+                            # Parse the extracted JSON
+                            parsed_result = parser.parse(extracted_json)
+                            content = extracted_json  # Use the cleaned content
+                        except Exception:
+                            # If extraction still fails, raise original error
+                            raise parse_error
+                    else:
+                        raise parse_error
+
+                return StructuredLLMResponse(
+                    content=content,
+                    parsed=parsed_result,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
+                )
+
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    # Exponential backoff: 1s, 2s, 4s
+                    wait_time = 2**attempt
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    # Final attempt failed, include raw content in error if available
+                    error_msg = f"OpenAI structured output error after {max_retries} attempts: {str(e)}"
+                    if "content" in locals():
+                        error_msg += f"\n\nRaw LLM output:\n{content[:2000]}"
+                    raise RuntimeError(error_msg)
 
     def _messages_to_text(self, messages: list[BaseMessage]) -> str:
         """

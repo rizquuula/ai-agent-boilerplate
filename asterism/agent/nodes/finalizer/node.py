@@ -1,5 +1,7 @@
 """Finalizer node implementation."""
 
+import logging
+
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from asterism.agent.models import AgentResponse, LLMUsage
@@ -8,6 +10,8 @@ from asterism.llm.base import BaseLLMProvider
 
 from .prompts import FINALIZER_SYSTEM_PROMPT
 from .utils import get_user_request
+
+logger = logging.getLogger(__name__)
 
 
 def finalizer_node(llm: BaseLLMProvider, state: AgentState) -> AgentState:
@@ -29,6 +33,8 @@ def finalizer_node(llm: BaseLLMProvider, state: AgentState) -> AgentState:
     plan = state.get("plan")
     execution_results = state.get("execution_results", [])
 
+    logger.info(f"Finalizing with {len(execution_results)} execution results")
+
     # Build execution trace
     execution_trace = []
     for result in execution_results:
@@ -46,6 +52,7 @@ def finalizer_node(llm: BaseLLMProvider, state: AgentState) -> AgentState:
     usage = None
 
     if failed_tasks:
+        logger.warning(f"Finalizing with {len(failed_tasks)} failed tasks")
         # Generate error response
         error_messages = [f"Task {r.task_id} failed: {r.error}" for r in failed_tasks]
         response = AgentResponse(
@@ -88,8 +95,10 @@ Create a response for the user."""
                 model=llm.model,
                 node_name="finalizer_node",
             )
+            logger.info("Finalizer generated response using LLM")
         except Exception as e:
             # Fallback if LLM fails
+            logger.error(f"Finalizer LLM call failed: {e}")
             response = AgentResponse(
                 message=f"Task completed successfully, but response generation failed: {str(e)}",
                 execution_trace=execution_trace,
@@ -105,4 +114,5 @@ Create a response for the user."""
     if usage:
         new_state["llm_usage"] = state.get("llm_usage", []) + [usage]
 
+    logger.info("Finalizer completed")
     return new_state

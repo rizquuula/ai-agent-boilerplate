@@ -1,5 +1,6 @@
 """Evaluator node implementation."""
 
+import logging
 from typing import Literal
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -10,6 +11,8 @@ from asterism.llm.base import BaseLLMProvider
 
 from .prompts import EVALUATOR_SYSTEM_PROMPT
 from .utils import build_evaluator_prompt, fallback_decision, resolve_next_task_inputs
+
+logger = logging.getLogger(__name__)
 
 
 def evaluator_node(llm: BaseLLMProvider, state: AgentState) -> AgentState:
@@ -38,8 +41,13 @@ def evaluator_node(llm: BaseLLMProvider, state: AgentState) -> AgentState:
             SystemMessage(content=EVALUATOR_SYSTEM_PROMPT),
             HumanMessage(content=user_prompt),
         ]
+
+        logger.debug(f"Evaluator sending prompt: {user_prompt[:500]}...")
+
         response = llm.invoke_structured(messages, EvaluationResult)
         evaluation = response.parsed
+
+        logger.info(f"Evaluator decision: {evaluation.decision}, reasoning: {evaluation.reasoning[:200]}")
 
         # Update state with evaluation result
         new_state = state.copy()
@@ -57,11 +65,28 @@ def evaluator_node(llm: BaseLLMProvider, state: AgentState) -> AgentState:
 
         # If replanning is needed, set error to trigger replanning
         if evaluation.decision == EvaluationDecision.REPLAN:
-            new_state["error"] = f"Replanning needed: {evaluation.reasoning}"
-            # Add suggested changes to messages for planner context
+            # Build comprehensive error message for replanning
+            error_parts = [f"Replanning needed: {evaluation.reasoning}"]
+
+            # Include information about what failed
+            execution_results = state.get("execution_results", [])
+            if execution_results:
+                last_result = execution_results[-1]
+                if not last_result.success:
+                    error_parts.append(f"Last task '{last_result.task_id}' failed: {last_result.error}")
+
+            # Include suggested changes if available
             if evaluation.suggested_changes:
-                replan_context = f"Previous execution failed. Suggested changes: {evaluation.suggested_changes}"
-                new_state["messages"] = state.get("messages", []) + [AIMessage(content=f"[Evaluator] {replan_context}")]
+                error_parts.append(f"Suggested changes: {evaluation.suggested_changes}")
+
+            new_state["error"] = "\n".join(error_parts)
+
+            # Add detailed context to messages for planner
+            replan_context = f"""[Evaluator] Replanning required.
+Decision: {evaluation.decision}
+Reasoning: {evaluation.reasoning}
+Suggested changes: {evaluation.suggested_changes or "None provided"}"""
+            new_state["messages"] = state.get("messages", []) + [AIMessage(content=replan_context)]
 
         # If continuing, resolve next task inputs based on previous results
         if evaluation.decision == EvaluationDecision.CONTINUE:
@@ -71,10 +96,12 @@ def evaluator_node(llm: BaseLLMProvider, state: AgentState) -> AgentState:
                 next_task = plan.tasks[current_index]
                 # Only resolve if task has a tool call
                 if next_task.tool_call:
+                    logger.debug(f"Resolving inputs for task: {next_task.id}")
                     resolved_input, resolver_usage = resolve_next_task_inputs(llm, next_task, new_state)
                     if resolved_input is not None:
                         # Update the task's tool_input with resolved values
                         next_task.tool_input = resolved_input
+                        logger.info(f"Resolved inputs for task {next_task.id}: {resolved_input}")
                     if resolver_usage:
                         # Track resolver LLM usage
                         new_state["llm_usage"] = new_state.get("llm_usage", []) + [resolver_usage]
@@ -82,12 +109,18 @@ def evaluator_node(llm: BaseLLMProvider, state: AgentState) -> AgentState:
         return new_state
 
     except Exception as e:
+        logger.error(f"Evaluator LLM call failed: {e}")
         # Fallback to simple logic-based evaluation if LLM fails
         new_state = state.copy()
+        fallback = fallback_decision(state)
         new_state["evaluation_result"] = EvaluationResult(
-            decision=fallback_decision(state),
+            decision=fallback,
             reasoning=f"LLM evaluation failed ({str(e)}), using fallback logic",
         )
+        # If fallback suggests replanning, set error
+        if fallback == EvaluationDecision.REPLAN:
+            new_state["error"] = f"Evaluation failed, fallback to replan: {str(e)}"
+        logger.info(f"Evaluator fallback decision: {fallback}")
         return new_state
 
 
