@@ -25,6 +25,7 @@ class SystemPromptLoader:
 
     DEFAULT_SOUL_PATH = "workspace/SOUL.md"
     DEFAULT_AGENT_PATH = "workspace/AGENT.md"
+    DEFAULT_PERSONALITY_PATH = "workspace/PERSONALITY.md"
 
     def __init__(
         self,
@@ -40,6 +41,7 @@ class SystemPromptLoader:
         """
         self.soul_path = soul_path or self.DEFAULT_SOUL_PATH
         self.agent_path = agent_path or self.DEFAULT_AGENT_PATH
+        self.agent_personality = agent_path or self.DEFAULT_PERSONALITY_PATH
 
     def with_paths(self, soul_path: str, agent_path: str) -> Self:
         """
@@ -99,6 +101,7 @@ class SystemPromptLoader:
         """
         soul_content = self._read_file(self.soul_path)
         agent_content = self._read_file(self.agent_path)
+        agent_personality = self._read_file(self.agent_personality)
 
         # Combine with clear section headers
         combined = f"""# SOUL (Core Values & Philosophy)
@@ -108,6 +111,10 @@ class SystemPromptLoader:
 # AGENT (Identity & Capabilities)
 
 {agent_content}
+
+# PERSONALITY
+
+{agent_personality}
 """
         return combined
 
