@@ -1,12 +1,14 @@
 """Evaluator node implementation."""
 
 import logging
+import time
 from typing import Literal
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from asterism.agent.models import EvaluationDecision, EvaluationResult, LLMUsage
 from asterism.agent.state import AgentState
+from asterism.agent.utils import log_evaluation_decision, log_llm_call
 from asterism.llm.base import BaseLLMProvider
 
 from .prompts import EVALUATOR_SYSTEM_PROMPT
@@ -42,12 +44,35 @@ def evaluator_node(llm: BaseLLMProvider, state: AgentState) -> AgentState:
             HumanMessage(content=user_prompt),
         ]
 
-        logger.debug(f"Evaluator sending prompt: {user_prompt[:500]}...")
+        logger.debug(f"[evaluator] Sending LLM request with prompt preview: {user_prompt[:300]}...")
 
+        # Time the LLM call
+        start_time = time.perf_counter()
         response = llm.invoke_structured(messages, EvaluationResult)
+        duration_ms = (time.perf_counter() - start_time) * 1000
+
         evaluation = response.parsed
 
-        logger.info(f"Evaluator decision: {evaluation.decision}, reasoning: {evaluation.reasoning[:200]}")
+        # Log LLM call
+        log_llm_call(
+            logger=logger,
+            node_name="evaluator_node",
+            model=llm.model,
+            prompt_tokens=response.prompt_tokens,
+            completion_tokens=response.completion_tokens,
+            duration_ms=duration_ms,
+            prompt_preview=user_prompt[:500],
+            response_preview=str(evaluation.model_dump())[:500],
+            success=True,
+        )
+
+        # Log evaluation decision with structured context
+        log_evaluation_decision(
+            logger=logger,
+            decision=evaluation.decision,
+            reasoning_preview=evaluation.reasoning,
+            suggested_changes=evaluation.suggested_changes,
+        )
 
         # Update state with evaluation result
         new_state = state.copy()
@@ -109,7 +134,23 @@ Suggested changes: {evaluation.suggested_changes or "None provided"}"""
         return new_state
 
     except Exception as e:
-        logger.error(f"Evaluator LLM call failed: {e}")
+        duration_ms = (time.perf_counter() - start_time) * 1000 if "start_time" in locals() else 0
+
+        # Log failed LLM call
+        log_llm_call(
+            logger=logger,
+            node_name="evaluator_node",
+            model=llm.model,
+            prompt_tokens=getattr(response, "prompt_tokens", 0) if "response" in locals() else 0,
+            completion_tokens=getattr(response, "completion_tokens", 0) if "response" in locals() else 0,
+            duration_ms=duration_ms,
+            prompt_preview=user_prompt[:500] if "user_prompt" in locals() else None,
+            success=False,
+            error=str(e),
+        )
+
+        logger.error(f"[evaluator] LLM call failed: {e}", exc_info=True)
+
         # Fallback to simple logic-based evaluation if LLM fails
         new_state = state.copy()
         fallback = fallback_decision(state)
@@ -117,10 +158,18 @@ Suggested changes: {evaluation.suggested_changes or "None provided"}"""
             decision=fallback,
             reasoning=f"LLM evaluation failed ({str(e)}), using fallback logic",
         )
+
+        # Log fallback decision
+        log_evaluation_decision(
+            logger=logger,
+            decision=fallback,
+            reasoning_preview=f"Fallback due to LLM error: {str(e)[:200]}",
+        )
+
         # If fallback suggests replanning, set error
         if fallback == EvaluationDecision.REPLAN:
             new_state["error"] = f"Evaluation failed, fallback to replan: {str(e)}"
-        logger.info(f"Evaluator fallback decision: {fallback}")
+
         return new_state
 
 

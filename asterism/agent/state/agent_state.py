@@ -11,6 +11,7 @@ class AgentState(TypedDict):
     """State for the agent workflow."""
 
     session_id: str
+    trace_id: str | None  # Unique trace ID for correlating logs across the entire flow
     messages: list[BaseMessage]
     plan: Plan | None
     current_task_index: int

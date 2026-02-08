@@ -181,14 +181,12 @@ class OpenAIProvider(BaseLLMProvider):
         for attempt in range(max_retries):
             try:
                 # Use JSON mode for structured output (OpenAI-specific)
-                response_format = {
-                    "type": "json_object"
-                }
+                response_format = {"type": "json_object"}
 
                 # Invoke with JSON mode
                 raw_response = self.client.invoke(
-                    messages, 
-                    # response_format=response_format, 
+                    messages,
+                    # response_format=response_format,
                     **kwargs,
                 )
 

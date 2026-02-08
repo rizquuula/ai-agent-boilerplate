@@ -1,11 +1,13 @@
 """Finalizer node implementation."""
 
 import logging
+import time
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from asterism.agent.models import AgentResponse, LLMUsage
 from asterism.agent.state import AgentState
+from asterism.agent.utils import log_llm_call
 from asterism.llm.base import BaseLLMProvider
 
 from .prompts import FINALIZER_SYSTEM_PROMPT
@@ -33,7 +35,7 @@ def finalizer_node(llm: BaseLLMProvider, state: AgentState) -> AgentState:
     plan = state.get("plan")
     execution_results = state.get("execution_results", [])
 
-    logger.info(f"Finalizing with {len(execution_results)} execution results")
+    logger.info(f"[finalizer] Starting finalization with {len(execution_results)} execution results")
 
     # Build execution trace
     execution_trace = []
@@ -52,7 +54,7 @@ def finalizer_node(llm: BaseLLMProvider, state: AgentState) -> AgentState:
     usage = None
 
     if failed_tasks:
-        logger.warning(f"Finalizing with {len(failed_tasks)} failed tasks")
+        logger.warning(f"[finalizer] Finalizing with {len(failed_tasks)} failed tasks")
         # Generate error response
         error_messages = [f"Task {r.task_id} failed: {r.error}" for r in failed_tasks]
         response = AgentResponse(
@@ -79,7 +81,13 @@ Create a response for the user."""
                 SystemMessage(content=FINALIZER_SYSTEM_PROMPT),
                 HumanMessage(content=user_prompt),
             ]
+
+            logger.debug(f"[finalizer] Sending LLM request with prompt preview: {user_prompt[:300]}...")
+
+            # Time the LLM call
+            start_time = time.perf_counter()
             llm_response = llm.invoke_with_usage(messages)
+            duration_ms = (time.perf_counter() - start_time) * 1000
 
             response = AgentResponse(
                 message=llm_response.content,
@@ -95,10 +103,39 @@ Create a response for the user."""
                 model=llm.model,
                 node_name="finalizer_node",
             )
-            logger.info("Finalizer generated response using LLM")
+
+            # Log LLM call
+            log_llm_call(
+                logger=logger,
+                node_name="finalizer_node",
+                model=llm.model,
+                prompt_tokens=llm_response.prompt_tokens,
+                completion_tokens=llm_response.completion_tokens,
+                duration_ms=duration_ms,
+                prompt_preview=user_prompt[:500],
+                response_preview=llm_response.content[:500],
+                success=True,
+            )
+
+            logger.info(f"[finalizer] Generated response with {len(execution_results)} execution trace entries")
         except Exception as e:
+            duration_ms = (time.perf_counter() - start_time) * 1000 if "start_time" in locals() else 0
+
+            # Log failed LLM call
+            log_llm_call(
+                logger=logger,
+                node_name="finalizer_node",
+                model=llm.model,
+                prompt_tokens=getattr(llm_response, "prompt_tokens", 0) if "llm_response" in locals() else 0,
+                completion_tokens=getattr(llm_response, "completion_tokens", 0) if "llm_response" in locals() else 0,
+                duration_ms=duration_ms,
+                prompt_preview=user_prompt[:500] if "user_prompt" in locals() else None,
+                success=False,
+                error=str(e),
+            )
+
             # Fallback if LLM fails
-            logger.error(f"Finalizer LLM call failed: {e}")
+            logger.error(f"[finalizer] LLM call failed: {e}", exc_info=True)
             response = AgentResponse(
                 message=f"Task completed successfully, but response generation failed: {str(e)}",
                 execution_trace=execution_trace,
@@ -114,5 +151,9 @@ Create a response for the user."""
     if usage:
         new_state["llm_usage"] = state.get("llm_usage", []) + [usage]
 
-    logger.info("Finalizer completed")
+    # Log finalization summary
+    logger.info(
+        f"[finalizer] Completed with {len(execution_results)} tasks, "
+        f"{len(failed_tasks)} failed, response length: {len(response.message)} chars"
+    )
     return new_state

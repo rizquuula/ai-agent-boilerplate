@@ -1,6 +1,7 @@
 """Main Agent implementation using LangGraph."""
 
 import sqlite3
+import uuid
 
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -18,6 +19,7 @@ def _initialize_state(session_id: str, user_message: str) -> AgentState:
     """Create initial agent state."""
     return {
         "session_id": session_id,
+        "trace_id": str(uuid.uuid4()),  # Generate unique trace ID for this flow
         "messages": [HumanMessage(content=user_message)],
         "plan": None,
         "current_task_index": 0,

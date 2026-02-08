@@ -1,9 +1,11 @@
 """Executor node implementation."""
 
 import logging
+import time
 
 from asterism.agent.models import LLMUsage, TaskResult
 from asterism.agent.state import AgentState
+from asterism.agent.utils import log_llm_call, log_mcp_tool_call, log_task_execution
 from asterism.llm.base import BaseLLMProvider
 from asterism.mcp.executor import MCPExecutor
 
@@ -49,8 +51,9 @@ def executor_node(llm: BaseLLMProvider, mcp_executor: MCPExecutor, state: AgentS
     # Execute the task
     result = TaskResult(task_id=task.id, success=False, result=None, error=None)
     task_usage: LLMUsage | None = None
+    task_start_time = time.perf_counter()
 
-    logger.info(f"Executing task {task.id}: {task.description[:100]}")
+    logger.info(f"[executor] Starting task {task.id}: {task.description[:100]}")
 
     try:
         if task.tool_call:
@@ -61,18 +64,40 @@ def executor_node(llm: BaseLLMProvider, mcp_executor: MCPExecutor, state: AgentS
             server_name, tool_name = task.tool_call.split(":", 1)
             tool_input = task.tool_input or {}
 
-            logger.debug(f"Tool call: {server_name}:{tool_name}, input: {tool_input}")
+            logger.debug(f"[executor] MCP tool call: {server_name}:{tool_name}, input_keys: {list(tool_input.keys())}")
 
-            # Execute via MCP
+            # Execute via MCP with timing
+            mcp_start_time = time.perf_counter()
             mcp_result = mcp_executor.execute_tool(server_name, tool_name, **tool_input)
+            mcp_duration_ms = (time.perf_counter() - mcp_start_time) * 1000
 
             if mcp_result["success"]:
                 result.success = True
                 result.result = mcp_result["result"]
-                logger.info(f"Task {task.id} succeeded")
+
+                # Log successful MCP tool call
+                log_mcp_tool_call(
+                    logger=logger,
+                    server_name=server_name,
+                    tool_name=tool_name,
+                    input_keys=list(tool_input.keys()),
+                    success=True,
+                    duration_ms=mcp_duration_ms,
+                    result_preview=str(mcp_result.get("result", ""))[:500],
+                )
             else:
                 result.error = mcp_result["error"]
-                logger.warning(f"Task {task.id} failed: {result.error}")
+
+                # Log failed MCP tool call
+                log_mcp_tool_call(
+                    logger=logger,
+                    server_name=server_name,
+                    tool_name=tool_name,
+                    input_keys=list(tool_input.keys()),
+                    success=False,
+                    duration_ms=mcp_duration_ms,
+                    error=mcp_result.get("error"),
+                )
         else:
             # LLM-only task
             if not task.description:
@@ -85,19 +110,24 @@ def executor_node(llm: BaseLLMProvider, mcp_executor: MCPExecutor, state: AgentS
                 dependent_results = [r for r in execution_results if r.task_id in task.depends_on]
                 if dependent_results:
                     execution_context = "\n\nContext from previous tasks:\n"
-                    for result in dependent_results:
-                        if result.success:
-                            execution_context += f"\n--- Result from task '{result.task_id}' ---\n{result.result}\n"
+                    for dep_result in dependent_results:
+                        if dep_result.success:
+                            execution_context += (
+                                f"\n--- Result from task '{dep_result.task_id}' ---\n{dep_result.result}\n"
+                            )
                         else:
-                            execution_context += f"\n--- Task '{result.task_id}' failed: {result.error}\n"
+                            execution_context += f"\n--- Task '{dep_result.task_id}' failed: {dep_result.error}\n"
 
             # Build full prompt with context
             full_prompt = task.description
             if execution_context:
                 full_prompt = f"{task.description}\n\n{execution_context}"
 
-            # Use LLM to process with usage tracking
+            # Use LLM to process with usage tracking and timing
+            llm_start_time = time.perf_counter()
             llm_response = llm.invoke_with_usage(full_prompt)
+            llm_duration_ms = (time.perf_counter() - llm_start_time) * 1000
+
             result.success = True
             result.result = llm_response.content
 
@@ -111,10 +141,51 @@ def executor_node(llm: BaseLLMProvider, mcp_executor: MCPExecutor, state: AgentS
             )
             result.llm_usage = task_usage
 
+            # Log LLM task execution
+            log_llm_call(
+                logger=logger,
+                node_name="executor_node",
+                model=llm.model,
+                prompt_tokens=llm_response.prompt_tokens,
+                completion_tokens=llm_response.completion_tokens,
+                duration_ms=llm_duration_ms,
+                prompt_preview=full_prompt[:500],
+                response_preview=llm_response.content[:500],
+                success=True,
+            )
+
+        # Calculate total task duration
+        task_duration_ms = (time.perf_counter() - task_start_time) * 1000
+
+        # Log task completion
+        log_task_execution(
+            logger=logger,
+            task_id=task.id,
+            task_type="tool" if task.tool_call else "llm",
+            success=result.success,
+            duration_ms=task_duration_ms,
+            tool_call=task.tool_call,
+            error=result.error,
+            result_preview=str(result.result)[:500] if result.result else None,
+        )
+
     except Exception as e:
+        task_duration_ms = (time.perf_counter() - task_start_time) * 1000
         result.error = str(e)
         result.success = False
-        logger.error(f"Task {task.id} execution error: {e}")
+
+        # Log task failure
+        log_task_execution(
+            logger=logger,
+            task_id=task.id,
+            task_type="tool" if task.tool_call else "llm",
+            success=False,
+            duration_ms=task_duration_ms,
+            tool_call=task.tool_call,
+            error=str(e),
+        )
+
+        logger.error(f"[executor] Task {task.id} execution error: {e}", exc_info=True)
 
     # Update state
     new_state = state.copy()

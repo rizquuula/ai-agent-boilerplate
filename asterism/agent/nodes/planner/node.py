@@ -1,11 +1,13 @@
 """Planner node implementation."""
 
 import logging
+import time
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from asterism.agent.models import LLMUsage, Plan
 from asterism.agent.state import AgentState
+from asterism.agent.utils import log_llm_call, log_plan_created
 from asterism.llm.base import BaseLLMProvider
 from asterism.mcp.executor import MCPExecutor
 
@@ -84,14 +86,29 @@ JSON OUTPUT:"""
             HumanMessage(content=user_prompt),
         ]
 
-        logger.debug(
-            f"Planner sending messages: {[{'role': type(m).__name__, 'content': m.content[:200]} for m in messages]}"
-        )
+        # Log prompt preview
+        prompt_preview = f"System: {enhanced_system_prompt[:200]}... User: {user_prompt[:200]}..."
+        logger.debug(f"[planner] Sending LLM request with prompt preview: {prompt_preview[:300]}")
 
+        # Time the LLM call
+        start_time = time.perf_counter()
         response = llm.invoke_structured(messages, Plan)
+        duration_ms = (time.perf_counter() - start_time) * 1000
+
         plan = response.parsed
 
-        logger.debug(f"Planner received plan: {plan.model_dump() if plan else 'None'}")
+        # Log LLM call with structured context
+        log_llm_call(
+            logger=logger,
+            node_name="planner_node",
+            model=llm.model,
+            prompt_tokens=response.prompt_tokens,
+            completion_tokens=response.completion_tokens,
+            duration_ms=duration_ms,
+            prompt_preview=prompt_preview,
+            response_preview=str(plan.model_dump())[:500] if plan else None,
+            success=True,
+        )
 
         # Validate the plan
         if not plan or not plan.tasks:
@@ -101,6 +118,16 @@ JSON OUTPUT:"""
         for i, task in enumerate(plan.tasks):
             if not task.id:
                 task.id = generate_task_id(i, task.description)
+
+        # Log plan creation with structured context
+        has_dependencies = any(t.depends_on for t in plan.tasks)
+        log_plan_created(
+            logger=logger,
+            task_count=len(plan.tasks),
+            task_ids=[t.id for t in plan.tasks],
+            has_dependencies=has_dependencies,
+            reasoning_preview=plan.reasoning,
+        )
 
         # Update state
         new_state = state.copy()
@@ -118,12 +145,27 @@ JSON OUTPUT:"""
         )
         new_state["llm_usage"] = state.get("llm_usage", []) + [usage]
 
-        logger.info(f"Planner created plan with {len(plan.tasks)} tasks")
         return new_state
 
     except Exception as e:
         error_msg = f"Planning failed: {str(e)}"
-        logger.error(error_msg)
+        duration_ms = (time.perf_counter() - start_time) * 1000 if "start_time" in locals() else 0
+
+        # Log failed LLM call if we got that far
+        if "response" in locals():
+            log_llm_call(
+                logger=logger,
+                node_name="planner_node",
+                model=llm.model,
+                prompt_tokens=getattr(response, "prompt_tokens", 0),
+                completion_tokens=getattr(response, "completion_tokens", 0),
+                duration_ms=duration_ms,
+                prompt_preview=prompt_preview if "prompt_preview" in locals() else None,
+                success=False,
+                error=str(e),
+            )
+
+        logger.error(f"[planner] Planning failed: {error_msg}", exc_info=True)
 
         new_state = state.copy()
         new_state["error"] = error_msg
