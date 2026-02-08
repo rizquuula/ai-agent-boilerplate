@@ -7,7 +7,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from asterism.agent.models import LLMUsage, Plan
 from asterism.agent.state import AgentState
-from asterism.agent.utils import log_llm_call, log_plan_created
+from asterism.agent.utils import log_llm_call, log_llm_call_start, log_plan_created
 from asterism.llm.base import BaseLLMProvider
 from asterism.mcp.executor import MCPExecutor
 
@@ -88,7 +88,15 @@ JSON OUTPUT:"""
 
         # Log prompt preview
         prompt_preview = f"System: {enhanced_system_prompt[:200]}... User: {user_prompt[:200]}..."
-        logger.debug(f"[planner] Sending LLM request with prompt preview: {prompt_preview[:300]}")
+
+        # Log LLM call start
+        log_llm_call_start(
+            logger=logger,
+            node_name="planner_node",
+            model=llm.model,
+            action="creating plan",
+            prompt_preview=prompt_preview,
+        )
 
         # Time the LLM call
         start_time = time.perf_counter()

@@ -8,7 +8,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from asterism.agent.models import EvaluationDecision, EvaluationResult, LLMUsage
 from asterism.agent.state import AgentState
-from asterism.agent.utils import log_evaluation_decision, log_llm_call
+from asterism.agent.utils import log_evaluation_decision, log_llm_call, log_llm_call_start
 from asterism.llm.base import BaseLLMProvider
 
 from .prompts import EVALUATOR_SYSTEM_PROMPT
@@ -45,6 +45,15 @@ def evaluator_node(llm: BaseLLMProvider, state: AgentState) -> AgentState:
         ]
 
         logger.debug(f"[evaluator] Sending LLM request with prompt preview: {user_prompt[:300]}...")
+
+        # Log LLM call start
+        log_llm_call_start(
+            logger=logger,
+            node_name="evaluator_node",
+            model=llm.model,
+            action="evaluating execution progress",
+            prompt_preview=user_prompt,
+        )
 
         # Time the LLM call
         start_time = time.perf_counter()

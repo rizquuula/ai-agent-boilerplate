@@ -5,7 +5,7 @@ import time
 
 from asterism.agent.models import LLMUsage, TaskResult
 from asterism.agent.state import AgentState
-from asterism.agent.utils import log_llm_call, log_mcp_tool_call, log_task_execution
+from asterism.agent.utils import log_llm_call, log_llm_call_start, log_mcp_tool_call, log_task_execution
 from asterism.llm.base import BaseLLMProvider
 from asterism.mcp.executor import MCPExecutor
 
@@ -122,6 +122,15 @@ def executor_node(llm: BaseLLMProvider, mcp_executor: MCPExecutor, state: AgentS
             full_prompt = task.description
             if execution_context:
                 full_prompt = f"{task.description}\n\n{execution_context}"
+
+            # Log LLM call start
+            log_llm_call_start(
+                logger=logger,
+                node_name="executor_node",
+                model=llm.model,
+                action=f"executing LLM task {task.id}",
+                prompt_preview=full_prompt,
+            )
 
             # Use LLM to process with usage tracking and timing
             llm_start_time = time.perf_counter()

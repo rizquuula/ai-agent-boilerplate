@@ -7,7 +7,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from asterism.agent.models import AgentResponse, LLMUsage
 from asterism.agent.state import AgentState
-from asterism.agent.utils import log_llm_call
+from asterism.agent.utils import log_llm_call, log_llm_call_start
 from asterism.llm.base import BaseLLMProvider
 
 from .prompts import FINALIZER_SYSTEM_PROMPT
@@ -83,6 +83,15 @@ Create a response for the user."""
             ]
 
             logger.debug(f"[finalizer] Sending LLM request with prompt preview: {user_prompt[:300]}...")
+
+            # Log LLM call start
+            log_llm_call_start(
+                logger=logger,
+                node_name="finalizer_node",
+                model=llm.model,
+                action="generating final response",
+                prompt_preview=user_prompt,
+            )
 
             # Time the LLM call
             start_time = time.perf_counter()

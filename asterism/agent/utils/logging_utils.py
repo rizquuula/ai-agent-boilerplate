@@ -324,3 +324,35 @@ def log_mcp_tool_call(
         logger.info(f"[executor] MCP tool {server_name}:{tool_name} succeeded", extra={"agent_context": context})
     else:
         logger.warning(f"[executor] MCP tool {server_name}:{tool_name} failed", extra={"agent_context": context})
+
+
+def log_llm_call_start(
+    logger: logging.Logger,
+    node_name: str,
+    model: str,
+    action: str,
+    prompt_preview: str | None = None,
+) -> None:
+    """Log the start of an LLM call.
+
+    This is useful for tracking which node is making an LLM call and what
+    action it's performing, especially useful for debugging slow/hanging calls.
+
+    Args:
+        logger: Logger instance.
+        node_name: Name of the node making the call.
+        model: Model name being used.
+        action: Description of what the LLM call is for (e.g., "planning", "evaluating").
+        prompt_preview: Preview of the prompt (first N chars).
+    """
+    context = {
+        "node": node_name,
+        "event": "llm_call_start",
+        "model": model,
+        "action": action,
+    }
+
+    if prompt_preview:
+        context["prompt_preview"] = prompt_preview[:500]
+
+    logger.info(f"[{node_name}] Starting LLM call for {action}", extra={"agent_context": context})
