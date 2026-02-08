@@ -10,9 +10,15 @@ from .logging_utils import (
     log_plan_created,
     log_task_execution,
 )
+from .workspace_tree import (
+    generate_workspace_tree,
+    get_workspace_tree_context,
+)
 
 __all__ = [
+    "generate_workspace_tree",
     "get_logger_context",
+    "get_workspace_tree_context",
     "log_evaluation_decision",
     "log_llm_call",
     "log_llm_call_start",

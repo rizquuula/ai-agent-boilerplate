@@ -38,6 +38,7 @@ class Agent:
         llm: BaseLLMProvider,
         mcp_executor: MCPExecutor,
         db_path: str | None = None,
+        workspace_root: str = "./workspace",
     ):
         """
         Initialize the agent.
@@ -46,10 +47,12 @@ class Agent:
             llm: LLM provider for planning and response generation.
             mcp_executor: MCP executor for tool calls.
             db_path: Path to SQLite database for checkpoint storage. If None, uses default.
+            workspace_root: Path to the workspace directory for context generation (default: ./workspace).
         """
         self.llm = llm
         self.mcp_executor = mcp_executor
         self.db_path = db_path or ".checkpoints/agent.db"
+        self.workspace_root = workspace_root
         self._graph = None
         self._checkpointer: BaseCheckpointSaver | None = None
         self._conn: sqlite3.Connection | None = None
@@ -113,9 +116,10 @@ class Agent:
         """Create planner node with LLM and MCP dependencies."""
         llm = self.llm
         mcp_executor = self.mcp_executor
+        workspace_root = self.workspace_root
 
         def _planner_node(state: AgentState) -> AgentState:
-            return planner_node(llm, mcp_executor, state)
+            return planner_node(llm, mcp_executor, state, workspace_root)
 
         return _planner_node
 

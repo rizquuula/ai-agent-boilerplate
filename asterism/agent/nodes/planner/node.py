@@ -7,7 +7,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from asterism.agent.models import LLMUsage, Plan
 from asterism.agent.state import AgentState
-from asterism.agent.utils import log_llm_call, log_llm_call_start, log_plan_created
+from asterism.agent.utils import get_workspace_tree_context, log_llm_call, log_llm_call_start, log_plan_created
 from asterism.llm.base import BaseLLMProvider
 from asterism.mcp.executor import MCPExecutor
 
@@ -17,19 +17,25 @@ from .utils import format_tools_context, generate_task_id
 logger = logging.getLogger(__name__)
 
 
-def planner_node(llm: BaseLLMProvider, mcp_executor: MCPExecutor, state: AgentState) -> AgentState:
+def planner_node(
+    llm: BaseLLMProvider,
+    mcp_executor: MCPExecutor,
+    state: AgentState,
+    workspace_root: str = "./workspace",
+) -> AgentState:
     """
     Create or update a plan based on the user request and execution history.
 
     The LLM will receive:
     1. SOUL.md + AGENT.md as a SystemMessage (loaded fresh from disk if configured)
-    2. Node-specific planning instructions as a SystemMessage (including available tools)
+    2. Node-specific planning instructions as a SystemMessage (including available tools and workspace tree)
     3. User request and execution context as a HumanMessage
 
     Args:
         llm: The LLM provider to use for planning.
         mcp_executor: The MCP executor for discovering available tools.
         state: Current agent state.
+        workspace_root: Path to the workspace directory for context generation.
 
     Returns:
         Updated state with a new or updated plan.
@@ -57,8 +63,13 @@ def planner_node(llm: BaseLLMProvider, mcp_executor: MCPExecutor, state: AgentSt
             status = "✓" if result.success else "✗"
             execution_context += f"- {status} {result.task_id}: {result.result if result.success else result.error}\n"
 
-    # Enhanced system prompt with tool information
+    # Generate workspace tree for context
+    workspace_context = get_workspace_tree_context(workspace_root)
+
+    # Enhanced system prompt with tool information and workspace context
     enhanced_system_prompt = f"""{PLANNER_SYSTEM_PROMPT}
+
+{workspace_context}
 
 Available MCP Tools:
 {tools_context}
