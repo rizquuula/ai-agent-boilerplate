@@ -46,7 +46,7 @@ def agent_invoke(message):
     (
         # "What time is it now?",
         # "Can you read your SOUL.md and tell me what inside?",
-        "Can you change your name in personality.md from Yui to Yuika?",
+        "Can you change your name in personality.md from Asteri to Yui? I want a cute name",
     ),
 )
 def test_agent_invoke(message):

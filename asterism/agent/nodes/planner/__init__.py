@@ -1,4 +1,7 @@
-"""Planner node for creating and updating task plans."""
+"""Planner node package.
+
+Creates execution plans based on user requests and available tools.
+"""
 
 from .node import planner_node
 
