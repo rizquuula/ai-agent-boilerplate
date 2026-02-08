@@ -3,21 +3,39 @@
 from pathlib import Path
 
 # Default ignore patterns for common directories/files
-DEFAULT_IGNORE_PATTERNS: frozenset[str] = frozenset({
-    # Python
-    ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache",
-    ".tox", ".eggs", "*.egg-info", "dist", "build",
-    # Node.js
-    "node_modules",
-    # Git
-    ".git", ".gitignore",
-    # IDE
-    ".idea", ".vscode", ".vs",
-    # OS
-    ".DS_Store", "Thumbs.db",
-    # Misc
-    ".env", ".env.*", ".coverage", "htmlcov", ".ruff_cache",
-})
+DEFAULT_IGNORE_PATTERNS: frozenset[str] = frozenset(
+    {
+        # Python
+        ".venv",
+        "venv",
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".tox",
+        ".eggs",
+        "*.egg-info",
+        "dist",
+        "build",
+        # Node.js
+        "node_modules",
+        # Git
+        ".git",
+        ".gitignore",
+        # IDE
+        ".idea",
+        ".vscode",
+        ".vs",
+        # OS
+        ".DS_Store",
+        "Thumbs.db",
+        # Misc
+        ".env",
+        ".env.*",
+        ".coverage",
+        "htmlcov",
+        ".ruff_cache",
+    }
+)
 
 # Default configuration
 DEFAULT_MAX_DEPTH = 3
@@ -150,5 +168,3 @@ def get_workspace_tree_context(
 
 Note: Use this structure to understand the workspace layout. For detailed file listings, use filesystem:list_files tool.
 """
-
-

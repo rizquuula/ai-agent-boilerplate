@@ -181,7 +181,10 @@ def log_llm_call(
         context["error"] = error
 
     if success:
-        logger.info(f"[{node_name}] LLM call completed", extra={"agent_context": context})
+        logger.info(
+            f"[{node_name}] LLM call completed. Usage: ({prompt_tokens} + {completion_tokens} = {prompt_tokens + completion_tokens})",  # noqa: E501
+            extra={"agent_context": context},
+        )
     else:
         logger.error(f"[{node_name}] LLM call failed", extra={"agent_context": context})
 
