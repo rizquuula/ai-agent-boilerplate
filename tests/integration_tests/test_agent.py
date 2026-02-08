@@ -9,7 +9,7 @@ from asterism.llm.openai_provider import OpenAIProvider
 from asterism.mcp.executor import MCPExecutor
 
 
-def test_agent_invoke():
+def agent_invoke(message):
     """Test agent invocation with real LLM."""
     if not os.getenv("OPENAI_API_KEY"):
         pytest.skip("OPENAI_API_KEY not set")
@@ -31,9 +31,7 @@ def test_agent_invoke():
 
     response = agent.invoke(
         session_id="test-session",
-        # user_message="What time is it now?",
-        # user_message="Can you read your SOUL.md and tell me what inside?",
-        user_message="Can you change your name in personality.md from Yui to Yuika?",
+        user_message=message,
     )
 
     agent.close()
@@ -41,3 +39,14 @@ def test_agent_invoke():
     assert response["session_id"] == "test-session"
     assert "message" in response
     assert response.get("error") is None
+
+
+@pytest.mark.parametrize(
+    "message", (
+        # "What time is it now?",
+        # "Can you read your SOUL.md and tell me what inside?",
+        "Can you change your name in personality.md from Yui to Yuika?",
+    )
+)
+def test_agent_invoke(message):
+    agent_invoke(message)

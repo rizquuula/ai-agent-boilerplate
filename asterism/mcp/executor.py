@@ -44,7 +44,11 @@ class MCPExecutor:
                 raise ValueError(f"No metadata found for server: {server_name}")
 
             transport = create_transport(metadata["transport"])
-            transport.start(metadata["command"], metadata["args"], metadata.get("cwd"))
+            cwd = metadata.get("cwd")
+            if cwd:
+                transport.start(metadata["command"], metadata["args"], cwd)
+            else:
+                transport.start(metadata["command"], metadata["args"])
             self.transports[server_name] = transport
 
             # Cache tools for this server
