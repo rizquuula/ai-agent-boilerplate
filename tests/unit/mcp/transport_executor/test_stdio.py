@@ -39,6 +39,7 @@ def test_stdio_start_success(mock_popen_class):
         text=True,
         bufsize=1,
         universal_newlines=True,
+        cwd=None,
     )
     assert transport._initialized is True
     assert transport._process is not None

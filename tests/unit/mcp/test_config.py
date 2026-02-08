@@ -50,6 +50,7 @@ def test_get_server_metadata(mock_load):
         "command": "uvx",
         "args": ["external_resources/mcp_servers/stdio/filesystem_mcp"],
         "transport": "stdio",
+        "cwd": "./workspace",
     }
     assert config.get_server_metadata("non_existent") is None
 
