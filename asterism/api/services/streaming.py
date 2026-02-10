@@ -4,6 +4,8 @@ import json
 import time
 from collections.abc import AsyncGenerator
 
+from asterism.api.services.agent_service import AgentService
+
 from ..models import (
     ChatCompletionStreamChoice,
     ChatCompletionStreamResponse,
@@ -13,7 +15,7 @@ from ..models import (
 async def stream_chat_completion(
     request_id: str,
     model: str,
-    agent_service,
+    agent_service: AgentService,
     request,
 ) -> AsyncGenerator[str]:
     """Stream chat completion as SSE events.

@@ -3,11 +3,16 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from asterism.agent.agent import Agent, _initialize_state
 from asterism.agent.models import AgentResponse, LLMUsage, Plan, Task
 from asterism.agent.state import AgentState
+
+
+def create_test_messages(content: str = "Hello, agent!") -> list[BaseMessage]:
+    """Create a test message list."""
+    return [HumanMessage(content=content)]
 
 
 @pytest.fixture
@@ -29,7 +34,8 @@ def mock_mcp_executor():
 
 def test_initialize_state():
     """Test state initialization."""
-    state = _initialize_state("session_123", "Hello, agent!")
+    messages = create_test_messages("Hello, agent!")
+    state = _initialize_state("session_123", messages)
 
     assert state["session_id"] == "session_123"
     assert state["trace_id"] is not None
@@ -42,6 +48,20 @@ def test_initialize_state():
     assert state["final_response"] is None
     assert state["error"] is None
     assert state["llm_usage"] == []
+
+
+def test_initialize_state_with_multiple_messages():
+    """Test state initialization with system and user messages."""
+    messages = [
+        SystemMessage(content="You are a helpful assistant."),
+        HumanMessage(content="Hello!"),
+    ]
+    state = _initialize_state("session_123", messages)
+
+    assert state["session_id"] == "session_123"
+    assert len(state["messages"]) == 2
+    assert isinstance(state["messages"][0], SystemMessage)
+    assert isinstance(state["messages"][1], HumanMessage)
 
 
 def test_agent_initialization_defaults(mock_llm, mock_mcp_executor):
@@ -249,7 +269,8 @@ def test_invoke_successful_execution(mock_build, mock_llm, mock_mcp_executor):
     mock_graph.invoke.return_value = final_state
 
     agent = Agent(llm=mock_llm, mcp_executor=mock_mcp_executor)
-    result = agent.invoke("session_123", "Do something")
+    messages = create_test_messages("Do something")
+    result = agent.invoke("session_123", messages)
 
     assert result["message"] == "Task completed successfully!"
     assert result["session_id"] == "session_123"
@@ -267,7 +288,8 @@ def test_invoke_graph_execution_error(mock_build, mock_llm, mock_mcp_executor):
     mock_graph.invoke.side_effect = Exception("Graph execution failed")
 
     agent = Agent(llm=mock_llm, mcp_executor=mock_mcp_executor)
-    result = agent.invoke("session_123", "Do something")
+    messages = create_test_messages("Do something")
+    result = agent.invoke("session_123", messages)
 
     assert "error" in result
     assert "Graph execution failed" in result["message"]
@@ -296,7 +318,8 @@ def test_invoke_no_final_response(mock_build, mock_llm, mock_mcp_executor):
     mock_graph.invoke.return_value = final_state
 
     agent = Agent(llm=mock_llm, mcp_executor=mock_mcp_executor)
-    result = agent.invoke("session_123", "Do something")
+    messages = create_test_messages("Do something")
+    result = agent.invoke("session_123", messages)
 
     assert "error" in result
     assert "did not produce a response" in result["message"]
@@ -337,7 +360,8 @@ def test_invoke_usage_aggregation(mock_build, mock_llm, mock_mcp_executor):
     mock_graph.invoke.return_value = final_state
 
     agent = Agent(llm=mock_llm, mcp_executor=mock_mcp_executor)
-    result = agent.invoke("session_123", "Do something")
+    messages = create_test_messages("Do something")
+    result = agent.invoke("session_123", messages)
 
     usage = result["total_usage"]
     assert usage["total_prompt_tokens"] == 350

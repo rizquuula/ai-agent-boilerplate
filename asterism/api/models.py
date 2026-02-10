@@ -11,6 +11,7 @@ class ChatMessage(BaseModel):
     role: Literal["system", "user", "assistant", "tool"]
     content: str
     name: str | None = None  # For tool messages
+    tool_call_id: str | None = None  # Required for tool messages in OpenAI format
 
 
 class ChatCompletionRequest(BaseModel):

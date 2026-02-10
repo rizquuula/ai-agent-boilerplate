@@ -5,24 +5,25 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.sqlite import SqliteSaver
-from langgraph.graph import END, START, StateGraph
 
+from asterism.agent.graph_builders import build_full_graph, build_streaming_graph
 from asterism.agent.models import AgentResponse
-from asterism.agent.nodes import evaluator_node, executor_node, finalizer_node, planner_node, should_continue
+from asterism.agent.nodes.finalizer.prompts import FINALIZER_SYSTEM_PROMPT
+from asterism.agent.nodes.shared import build_execution_trace, get_user_request
 from asterism.agent.state import AgentState
 from asterism.llm.base import BaseLLMProvider
 from asterism.mcp.executor import MCPExecutor
 
 
-def _initialize_state(session_id: str, user_message: str) -> AgentState:
+def _initialize_state(session_id: str, messages: list[BaseMessage]) -> AgentState:
     """Create initial agent state."""
     return {
         "session_id": session_id,
         "trace_id": str(uuid.uuid4()),  # Generate unique trace ID for this flow
-        "messages": [HumanMessage(content=user_message)],
+        "messages": messages,
         "plan": None,
         "current_task_index": 0,
         "execution_results": [],
@@ -55,7 +56,8 @@ class Agent:
         self.mcp_executor = mcp_executor
         self.db_path = db_path  # Allow None for stateless mode
         self.workspace_root = workspace_root
-        self._graph = None
+        self._full_graph = None
+        self._streaming_graph = None
         self._checkpointer: BaseCheckpointSaver | None = None
         self._conn: sqlite3.Connection | None = None
 
@@ -82,104 +84,38 @@ class Agent:
             self._checkpointer = SqliteSaver(self._conn)
         return self._checkpointer
 
-    def build(self) -> StateGraph:
-        """
-        Build the LangGraph workflow.
+    def build(self):
+        """Build the full LangGraph workflow (with finalizer).
 
         Returns:
             Compiled StateGraph ready for execution.
         """
-        if self._graph is not None:
-            return self._graph
+        if self._full_graph is not None:
+            return self._full_graph
 
-        # Create state graph
-        workflow = StateGraph(AgentState)
-
-        # Add nodes with dependencies injected via closures
-        workflow.add_node("planner_node", self._make_planner_node())
-        workflow.add_node("executor_node", self._make_executor_node())
-        workflow.add_node("evaluator_node", self._make_evaluator_node())
-        workflow.add_node("finalizer_node", self._make_finalizer_node())
-
-        # Define edges
-        workflow.add_edge(START, "planner_node")
-        workflow.add_edge("planner_node", "executor_node")
-        workflow.add_edge("executor_node", "evaluator_node")
-        workflow.add_conditional_edges(
-            "evaluator_node",
-            self._make_routing_function(),
-            {
-                "planner_node": "planner_node",
-                "executor_node": "executor_node",
-                "finalizer_node": "finalizer_node",
-            },
-        )
-        workflow.add_edge("finalizer_node", END)
-
-        # Compile with or without checkpointing
         checkpointer = self._get_checkpointer()
-        if checkpointer:
-            self._graph = workflow.compile(checkpointer=checkpointer)
-        else:
-            # Stateless mode - no checkpointing
-            self._graph = workflow.compile()
+        self._full_graph = build_full_graph(self, checkpointer)
+        return self._full_graph
 
-        return self._graph
+    def build_for_streaming(self):
+        """Build the streaming LangGraph workflow (stops before finalizer).
 
-    def _make_planner_node(self):
-        """Create planner node with LLM and MCP dependencies."""
-        llm = self.llm
-        mcp_executor = self.mcp_executor
-        workspace_root = self.workspace_root
-
-        def _planner_node(state: AgentState) -> AgentState:
-            return planner_node(llm, mcp_executor, state, workspace_root)
-
-        return _planner_node
-
-    def _make_executor_node(self):
-        """Create executor node with LLM and MCP dependencies."""
-        llm = self.llm
-        mcp_executor = self.mcp_executor
-
-        def _executor_node(state: AgentState) -> AgentState:
-            return executor_node(llm, mcp_executor, state)
-
-        return _executor_node
-
-    def _make_evaluator_node(self):
-        """Create evaluator node with LLM dependency."""
-        llm = self.llm
-
-        def _evaluator_node(state: AgentState) -> AgentState:
-            return evaluator_node(llm, state)
-
-        return _evaluator_node
-
-    def _make_finalizer_node(self):
-        """Create finalizer node with LLM dependency."""
-        llm = self.llm
-
-        def _finalizer_node(state: AgentState) -> AgentState:
-            return finalizer_node(llm, state)
-
-        return _finalizer_node
-
-    def _make_routing_function(self):
-        """Create routing function for evaluator."""
-
-        def _route(state: AgentState) -> str:
-            return should_continue(state)
-
-        return _route
-
-    def invoke(self, session_id: str, user_message: str) -> dict[str, Any]:
+        Returns:
+            Compiled StateGraph ready for execution.
         """
-        Process a user message and return the agent's response.
+        if self._streaming_graph is not None:
+            return self._streaming_graph
+
+        checkpointer = self._get_checkpointer()
+        self._streaming_graph = build_streaming_graph(self, checkpointer)
+        return self._streaming_graph
+
+    def invoke(self, session_id: str, messages: list[BaseMessage]) -> dict[str, Any]:
+        """Process messages and return the agent's response.
 
         Args:
             session_id: Unique session identifier for state persistence.
-            user_message: The user's input message.
+            messages: List of messages (system, user, assistant, tool) in the conversation.
 
         Returns:
             Dictionary containing:
@@ -192,7 +128,7 @@ class Agent:
         graph = self.build()
 
         # Get initial state
-        initial_state = _initialize_state(session_id, user_message)
+        initial_state = _initialize_state(session_id, messages)
 
         # Run the graph
         try:
@@ -239,16 +175,17 @@ class Agent:
             "total_usage": total_usage,
         }
 
-    async def astream(self, session_id: str, user_message: str) -> AsyncGenerator[tuple[str, dict[str, Any] | None]]:
-        """
-        Process a user message and stream the agent's response tokens.
+    async def astream(
+        self, session_id: str, messages: list[BaseMessage]
+    ) -> AsyncGenerator[tuple[str, dict[str, Any] | None]]:
+        """Process messages and stream the agent's response tokens.
 
-        This method runs planner → executor → evaluator normally, then streams
-        the final response tokens from the finalizer.
+        This method runs planner → executor → evaluator, then stops before
+        the finalizer. It then streams the final response tokens manually.
 
         Args:
             session_id: Unique session identifier.
-            user_message: The user's input message.
+            messages: List of messages (system, user, assistant, tool) in the conversation.
 
         Yields:
             Tuples of (token, metadata) where:
@@ -256,7 +193,7 @@ class Agent:
                 - metadata: Dict with execution info (only on final token, None otherwise)
 
         Example:
-            async for token, metadata in agent.astream("session-1", "Hello"):
+            async for token, metadata in agent.astream("session-1", messages):
                 if metadata:
                     print(f"Complete! Usage: {metadata['total_usage']}")
                 else:
@@ -264,17 +201,11 @@ class Agent:
         """
         from langchain_core.messages import SystemMessage
 
-        from asterism.agent.nodes.finalizer.prompts import FINALIZER_SYSTEM_PROMPT
-        from asterism.agent.nodes.shared import (
-            build_execution_trace,
-            get_user_request,
-        )
-
-        # Build graph if needed
-        graph = self.build()
+        # Build streaming graph (stops before finalizer)
+        graph = self.build_for_streaming()
 
         # Get initial state
-        initial_state = _initialize_state(session_id, user_message)
+        initial_state = _initialize_state(session_id, messages)
 
         # Run the graph up to finalization (non-streaming for planning/execution)
         try:
@@ -341,7 +272,7 @@ Execution results:
 
 Create a response for the user."""
 
-        messages = [
+        finalizer_messages = [
             SystemMessage(content=FINALIZER_SYSTEM_PROMPT),
             HumanMessage(content=user_prompt),
         ]
@@ -349,7 +280,7 @@ Create a response for the user."""
         # Stream tokens from the LLM
         full_response = ""
         try:
-            async for token in self.llm.astream(messages):
+            async for token in self.llm.astream(finalizer_messages):
                 full_response += token
                 yield token, None  # Yield token with no metadata during streaming
 
@@ -378,8 +309,7 @@ Create a response for the user."""
             )
 
     def clear_session(self, session_id: str) -> None:
-        """
-        Clear all state for a session.
+        """Clear all state for a session.
 
         Args:
             session_id: The session ID to clear.

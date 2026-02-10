@@ -3,6 +3,8 @@
 import logging
 from typing import Any
 
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+
 from asterism.agent import Agent
 from asterism.config import Config
 from asterism.llm import LLMProviderRouter
@@ -60,18 +62,18 @@ class AgentService:
         )
 
         try:
-            # Extract the last user message as the input
-            user_message = self._extract_last_user_message(request.messages)
+            # Convert OpenAI format messages to LangChain messages
+            messages = self._convert_messages(request.messages)
 
             # Set model if specified in request
             if request.model:
                 # The router will handle model resolution
                 pass
 
-            # Run agent
+            # Run agent with full conversation context
             result = agent.invoke(
                 session_id=request_id,
-                user_message=user_message,
+                messages=messages,
             )
 
             return result
@@ -102,18 +104,46 @@ class AgentService:
         )
 
         try:
-            # Extract the last user message as the input
-            user_message = self._extract_last_user_message(request.messages)
+            # Convert OpenAI format messages to LangChain messages
+            messages = self._convert_messages(request.messages)
 
-            # Stream agent response
+            # Stream agent response with full conversation context
             async for token, metadata in agent.astream(
                 session_id=request_id,
-                user_message=user_message,
+                messages=messages,
             ):
                 yield token, metadata
 
         finally:
             agent.close()
+
+    def _convert_messages(self, messages: list) -> list:
+        """Convert OpenAI format messages to LangChain messages.
+
+        Args:
+            messages: List of ChatMessage objects with role and content
+
+        Returns:
+            List of LangChain BaseMessage objects
+        """
+        converted = []
+        for msg in messages:
+            if msg.role == "system":
+                converted.append(SystemMessage(content=msg.content))
+            elif msg.role == "user":
+                converted.append(HumanMessage(content=msg.content))
+            elif msg.role == "assistant":
+                converted.append(AIMessage(content=msg.content))
+            elif msg.role == "tool":
+                # Tool messages require tool_call_id to link to the assistant's tool call
+                converted.append(
+                    ToolMessage(
+                        content=msg.content,
+                        tool_call_id=msg.tool_call_id or "",
+                        name=msg.name or "tool",
+                    )
+                )
+        return converted
 
     def _extract_last_user_message(self, messages: list) -> str:
         """Extract the last user message from the conversation.
