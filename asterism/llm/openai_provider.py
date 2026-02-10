@@ -25,6 +25,7 @@ class OpenAIProvider(BaseLLMProvider):
 
     def __init__(
         self,
+        provider_name: str,
         model: str,
         base_url: str | None = None,
         api_key: str | None = None,
@@ -43,6 +44,7 @@ class OpenAIProvider(BaseLLMProvider):
             **kwargs: Additional LangChain ChatOpenAI parameters
         """
         super().__init__(prompt_loader=prompt_loader)
+        self._name = provider_name
         self._model = model
         self._base_url = base_url
         self._api_key = api_key or os.getenv("OPENAI_API_KEY")
@@ -323,7 +325,7 @@ class OpenAIProvider(BaseLLMProvider):
     @property
     def name(self) -> str:
         """Name of the LLM provider."""
-        return "OpenAI"
+        return self._name
 
     @property
     def model(self) -> str:

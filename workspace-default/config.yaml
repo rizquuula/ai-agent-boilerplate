@@ -17,7 +17,7 @@ models:
       name: openrouter
       base_url: https://openrouter.ai/api/v1
       api_key: env.OPENROUTER_API_KEY
-  default: openrouter/stepfun-ai/Step-3.5-Flash-FP8
+  default: openrouter/stepfun/step-3.5-flash:free
   fallback:
     - openrouter/qwen/qwen3-coder-next
 

@@ -66,7 +66,7 @@ class LLMProviderRouter(BaseLLMProvider):
         Raises:
             AllProvidersFailedError: If all providers in the chain fail
         """
-        model = kwargs.get("model")
+        model = kwargs.get("model", self.config.data.models.default)
         provider_chain = self._build_provider_chain(model)
         provider_names = [p.name for p in provider_chain]
 
@@ -119,7 +119,7 @@ class LLMProviderRouter(BaseLLMProvider):
         Raises:
             AllProvidersFailedError: If all providers in the chain fail
         """
-        model = kwargs.get("model")
+        model = kwargs.get("model", self.config.data.models.default)
         provider_chain = self._build_provider_chain(model)
         provider_names = [p.name for p in provider_chain]
 
@@ -174,7 +174,7 @@ class LLMProviderRouter(BaseLLMProvider):
         Raises:
             AllProvidersFailedError: If all providers in the chain fail
         """
-        model = kwargs.get("model")
+        model = kwargs.get("model", self.config.data.models.default)
         provider_chain = self._build_provider_chain(model)
         provider_names = [p.name for p in provider_chain]
 
@@ -298,7 +298,7 @@ class LLMProviderRouter(BaseLLMProvider):
         Raises:
             AllProvidersFailedError: If all providers in the chain fail
         """
-        model = kwargs.get("model")
+        model = kwargs.get("model", self.config.data.models.default)
         provider_chain = self._build_provider_chain(model)
         provider_names = [p.name for p in provider_chain]
 

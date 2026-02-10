@@ -41,6 +41,7 @@ class LLMProviderFactory:
                 raise ValueError(f"API key is required for provider: {provider_config.name}")
 
             return OpenAIProvider(
+                provider_name=provider_config.name,
                 model="placeholder",  # Will be overridden per-request
                 base_url=provider_config.base_url,
                 api_key=api_key,
