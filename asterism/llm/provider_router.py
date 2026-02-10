@@ -19,11 +19,14 @@ class LLMProviderRouter(BaseLLMProvider):
     """Routes LLM calls across multiple providers with primary-first fallback.
 
     This router implements a sequential fallback strategy where:
-    1. The primary provider is tried first
-    2. On failure, each fallback provider is tried in order
-    3. If all providers fail, an AllProvidersFailedError is raised
+    1. The primary model (from request or config default) is tried first
+    2. On failure, each fallback model is tried in order
+    3. If all models fail, an AllProvidersFailedError is raised
 
     Model format: "provider_name/model_path" or just "model_path" (uses default provider)
+
+    The fallback chain is built from models, not providers, allowing multiple
+    models from the same provider to be used as fallbacks.
 
     Attributes:
         config: Configuration object with provider and fallback settings
@@ -64,41 +67,35 @@ class LLMProviderRouter(BaseLLMProvider):
             LLM response string
 
         Raises:
-            AllProvidersFailedError: If all providers in the chain fail
+            AllProvidersFailedError: If all models in the chain fail
         """
         model = kwargs.get("model", self.config.data.models.default)
-        provider_chain = self._build_provider_chain(model)
-        provider_names = [p.name for p in provider_chain]
+        model_chain = self._build_model_chain(model)
+        model_names = [f"{p.name}/{m}" for p, m in model_chain]
 
-        if not provider_chain:
+        if not model_chain:
             raise AllProvidersFailedError(
                 "No providers available in the chain",
-                provider_chain=provider_names,
+                provider_chain=model_names,
             )
 
         last_error: Exception | None = None
 
-        for provider in provider_chain:
+        for provider, model_name in model_chain:
             try:
-                # Extract model name for this provider (remove provider prefix)
-                provider_model = self._extract_model_for_provider(model, provider.name)
-                if provider_model:
-                    kwargs["model"] = provider_model
-                else:
-                    kwargs.pop("model", None)
-
+                kwargs["model"] = model_name
                 result = provider.invoke(prompt, **kwargs)
-                logger.debug(f"Provider succeeded: {provider.name}")
+                logger.debug(f"Model succeeded: {provider.name}/{model_name}")
                 return result
             except Exception as e:
                 last_error = e
-                logger.warning(f"Provider {provider.name} failed: {e}")
+                logger.warning(f"Model {provider.name}/{model_name} failed: {e}")
                 continue
 
         raise AllProvidersFailedError(
-            f"All providers failed after trying {len(provider_chain)} provider(s).",
+            f"All models failed after trying {len(model_chain)} model(s).",
             last_error=last_error,
-            provider_chain=provider_names,
+            provider_chain=model_names,
         )
 
     def invoke_with_usage(
@@ -117,41 +114,35 @@ class LLMProviderRouter(BaseLLMProvider):
             LLMResponse containing content and usage metadata
 
         Raises:
-            AllProvidersFailedError: If all providers in the chain fail
+            AllProvidersFailedError: If all models in the chain fail
         """
         model = kwargs.get("model", self.config.data.models.default)
-        provider_chain = self._build_provider_chain(model)
-        provider_names = [p.name for p in provider_chain]
+        model_chain = self._build_model_chain(model)
+        model_names = [f"{p.name}/{m}" for p, m in model_chain]
 
-        if not provider_chain:
+        if not model_chain:
             raise AllProvidersFailedError(
                 "No providers available in the chain",
-                provider_chain=provider_names,
+                provider_chain=model_names,
             )
 
         last_error: Exception | None = None
 
-        for provider in provider_chain:
+        for provider, model_name in model_chain:
             try:
-                # Extract model name for this provider (remove provider prefix)
-                provider_model = self._extract_model_for_provider(model, provider.name)
-                if provider_model:
-                    kwargs["model"] = provider_model
-                else:
-                    kwargs.pop("model", None)
-
+                kwargs["model"] = model_name
                 result = provider.invoke_with_usage(prompt, **kwargs)
-                logger.debug(f"Provider succeeded: {provider.name}")
+                logger.debug(f"Model succeeded: {provider.name}/{model_name}")
                 return result
             except Exception as e:
                 last_error = e
-                logger.warning(f"Provider {provider.name} failed: {e}")
+                logger.warning(f"Model {provider.name}/{model_name} failed: {e}")
                 continue
 
         raise AllProvidersFailedError(
-            f"All providers failed after trying {len(provider_chain)} provider(s).",
+            f"All models failed after trying {len(model_chain)} model(s).",
             last_error=last_error,
-            provider_chain=provider_names,
+            provider_chain=model_names,
         )
 
     def invoke_structured(
@@ -172,112 +163,100 @@ class LLMProviderRouter(BaseLLMProvider):
             StructuredLLMResponse containing parsed model and usage metadata
 
         Raises:
-            AllProvidersFailedError: If all providers in the chain fail
+            AllProvidersFailedError: If all models in the chain fail
         """
         model = kwargs.get("model", self.config.data.models.default)
-        provider_chain = self._build_provider_chain(model)
-        provider_names = [p.name for p in provider_chain]
+        model_chain = self._build_model_chain(model)
+        model_names = [f"{p.name}/{m}" for p, m in model_chain]
 
-        if not provider_chain:
+        if not model_chain:
             raise AllProvidersFailedError(
                 "No providers available in the chain",
-                provider_chain=provider_names,
+                provider_chain=model_names,
             )
 
         last_error: Exception | None = None
 
-        for provider in provider_chain:
+        for provider, model_name in model_chain:
             try:
-                # Extract model name for this provider (remove provider prefix)
-                provider_model = self._extract_model_for_provider(model, provider.name)
-                if provider_model:
-                    kwargs["model"] = provider_model
-                else:
-                    kwargs.pop("model", None)
-
+                kwargs["model"] = model_name
                 result = provider.invoke_structured(prompt, schema, **kwargs)
-                logger.debug(f"Provider succeeded: {provider.name}")
+                logger.debug(f"Model succeeded: {provider.name}/{model_name}")
                 return result
             except Exception as e:
                 last_error = e
-                logger.warning(f"Provider {provider.name} failed: {e}")
+                logger.warning(f"Model {provider.name}/{model_name} failed: {e}")
                 continue
 
         raise AllProvidersFailedError(
-            f"All providers failed after trying {len(provider_chain)} provider(s).",
+            f"All models failed after trying {len(model_chain)} model(s).",
             last_error=last_error,
-            provider_chain=provider_names,
+            provider_chain=model_names,
         )
 
-    def _build_provider_chain(self, model: str | None) -> list[BaseLLMProvider]:
-        """Build the provider chain for a model request.
+    def _build_model_chain(self, primary_model: str | None) -> list[tuple[BaseLLMProvider, str]]:
+        """Build the model chain for a request.
 
         The chain is built as: primary → fallback[0] → fallback[1] → ...
+        Each entry is a tuple of (provider_instance, model_name).
+
+        Unlike the previous provider-based chain, this allows multiple models
+        from the same provider to be used as fallbacks.
 
         Args:
-            model: Model identifier (provider/model format) or None to use default
+            primary_model: Primary model identifier (provider/model format) or None
 
         Returns:
-            List of providers in order of priority
+            List of (provider, model_name) tuples in order of priority
         """
-        chain: list[BaseLLMProvider] = []
-        seen: set[str] = set()
+        chain: list[tuple[BaseLLMProvider, str]] = []
 
-        # Parse model identifier to get primary provider name
-        if model and "/" in model:
-            primary_provider_name = model.split("/", 1)[0]
-        else:
-            # Use default from config
-            default_model = self.config.data.models.default
-            if "/" in default_model:
-                primary_provider_name = default_model.split("/", 1)[0]
-            else:
-                primary_provider_name = default_model
+        # Build list of model strings to try: primary + fallbacks
+        model_strings: list[str] = []
 
-        # Add primary provider
-        if primary_provider_name and primary_provider_name not in seen:
-            primary = self.providers.get(primary_provider_name)
-            if primary:
-                chain.append(primary)
-                seen.add(primary_provider_name)
+        # Add primary model (from request or config default)
+        if primary_model:
+            model_strings.append(primary_model)
 
-        # Add fallback providers from config
+        # Add fallback models from config
         for fallback_model in self.config.data.models.fallback:
-            if "/" in fallback_model:
-                fallback_provider_name, _ = fallback_model.split("/", 1)
-            else:
-                fallback_provider_name = fallback_model
+            if fallback_model not in model_strings:
+                model_strings.append(fallback_model)
 
-            if fallback_provider_name and fallback_provider_name not in seen:
-                provider = self.providers.get(fallback_provider_name)
-                if provider:
-                    chain.append(provider)
-                    seen.add(fallback_provider_name)
+        # Build chain of (provider, model_name) tuples
+        for model_string in model_strings:
+            provider_name, model_name = self._parse_model_string(model_string)
+
+            provider = self.providers.get(provider_name)
+            if provider:
+                chain.append((provider, model_name))
+            else:
+                logger.warning(f"Provider '{provider_name}' not found for model '{model_string}'")
 
         return chain
 
-    def _extract_model_for_provider(self, model: str | None, provider_name: str) -> str | None:
-        """Extract the model name for a specific provider.
+    def _parse_model_string(self, model_string: str) -> tuple[str, str]:
+        """Parse a model string into provider name and model name.
 
         Args:
-            model: Full model string (provider/model) or just model name
-            provider_name: Name of the provider to extract model for
+            model_string: Model identifier in format "provider/model" or just "model"
 
         Returns:
-            Model name without provider prefix, or None if not applicable
+            Tuple of (provider_name, model_name)
         """
-        if not model:
-            return None
+        if "/" in model_string:
+            parts = model_string.split("/", 1)
+            return parts[0], parts[1]
 
-        if "/" in model:
-            parts = model.split("/", 1)
-            if parts[0] == provider_name:
-                return parts[1]
-            # Model is for a different provider
-            return None
+        # No provider prefix, use default provider from config
+        default_model = self.config.data.models.default
+        if "/" in default_model:
+            default_provider = default_model.split("/", 1)[0]
+            return default_provider, model_string
 
-        # No provider prefix, return as-is
-        return model
+        # Default model also has no provider, use model string as-is
+        # This will likely fail but preserves backward compatibility
+        return model_string, model_string
 
     async def astream(
         self,
@@ -296,43 +275,37 @@ class LLMProviderRouter(BaseLLMProvider):
             Tokens (strings) as they are generated.
 
         Raises:
-            AllProvidersFailedError: If all providers in the chain fail
+            AllProvidersFailedError: If all models in the chain fail
         """
         model = kwargs.get("model", self.config.data.models.default)
-        provider_chain = self._build_provider_chain(model)
-        provider_names = [p.name for p in provider_chain]
+        model_chain = self._build_model_chain(model)
+        model_names = [f"{p.name}/{m}" for p, m in model_chain]
 
-        if not provider_chain:
+        if not model_chain:
             raise AllProvidersFailedError(
                 "No providers available in the chain",
-                provider_chain=provider_names,
+                provider_chain=model_names,
             )
 
         last_error: Exception | None = None
 
-        for provider in provider_chain:
+        for provider, model_name in model_chain:
             try:
-                # Extract model name for this provider (remove provider prefix)
-                provider_model = self._extract_model_for_provider(model, provider.name)
-                if provider_model:
-                    kwargs["model"] = provider_model
-                else:
-                    kwargs.pop("model", None)
-
-                logger.debug(f"Streaming with provider: {provider.name}")
+                kwargs["model"] = model_name
+                logger.debug(f"Streaming with model: {provider.name}/{model_name}")
                 async for token in provider.astream(prompt, **kwargs):
                     yield token
                 return  # Successfully streamed, exit
 
             except Exception as e:
                 last_error = e
-                logger.warning(f"Provider {provider.name} failed during streaming: {e}")
+                logger.warning(f"Model {provider.name}/{model_name} failed during streaming: {e}")
                 continue
 
         raise AllProvidersFailedError(
-            f"All providers failed during streaming after trying {len(provider_chain)} provider(s).",
+            f"All models failed during streaming after trying {len(model_chain)} model(s).",
             last_error=last_error,
-            provider_chain=provider_names,
+            provider_chain=model_names,
         )
 
     def set_model(self, model: str) -> None:
