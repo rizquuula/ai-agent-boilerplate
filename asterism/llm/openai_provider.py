@@ -3,6 +3,8 @@
 import os
 import re
 import time
+from collections.abc import AsyncGenerator
+from typing import Any
 
 from langchain_core.messages import BaseMessage
 from langchain_core.output_parsers import PydanticOutputParser
@@ -241,6 +243,62 @@ class OpenAIProvider(BaseLLMProvider):
                     if "content" in locals():
                         error_msg += f"\n\nRaw LLM output:\n{content[:2000]}"
                     raise RuntimeError(error_msg)
+
+    async def astream(
+        self,
+        prompt: str | list[BaseMessage],
+        **kwargs: Any,
+    ) -> AsyncGenerator[str]:
+        """
+        Stream LLM response tokens asynchronously using LangChain's astream.
+
+        Args:
+            prompt: Either a text prompt (str) or a list of messages.
+            **kwargs: Additional provider-specific parameters.
+                - model: Override the model for this request
+
+        Yields:
+            Tokens (strings) as they are generated.
+        """
+        # Build full message list with system prompts
+        messages = self._build_messages(prompt, **kwargs)
+
+        # Allow model override per-request
+        model = kwargs.get("model", self._model)
+
+        # Create client with potentially different model
+        if model != self._model:
+            client = ChatOpenAI(
+                model=model,
+                base_url=self._base_url,
+                api_key=self._api_key,
+                streaming=True,
+            )
+        else:
+            # Use existing client but enable streaming
+            client = self.client
+
+        try:
+            async for chunk in client.astream(messages, **kwargs):
+                content = chunk.content
+                if content:
+                    yield content
+        except Exception as e:
+            raise RuntimeError(f"OpenAI streaming error: {str(e)}") from e
+
+    def set_model(self, model: str) -> None:
+        """Set the model for this provider.
+
+        Args:
+            model: Model name to use for subsequent calls.
+        """
+        self._model = model
+        # Re-initialize client with new model
+        self.client = ChatOpenAI(
+            model=model,
+            base_url=self._base_url,
+            api_key=self._api_key,
+        )
 
     def _messages_to_text(self, messages: list[BaseMessage]) -> str:
         """

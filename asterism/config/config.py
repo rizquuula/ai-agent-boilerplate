@@ -26,6 +26,8 @@ class APIConfig(BaseModel):
     host: str = Field(..., description="API host address")
     port: int = Field(..., description="API port number")
     debug: bool = Field(..., description="Debug mode flag")
+    cors_origins: list[str] = Field(default_factory=lambda: ["*"], description="Allowed CORS origins")
+    api_keys: str | None = Field(default=None, description="Comma-separated API keys for authentication")
 
 
 class ModelProvider(BaseModel):
@@ -45,12 +47,20 @@ class ModelsConfig(BaseModel):
     fallback: list[str] = Field(default_factory=list, description="Fallback models")
 
 
+class MCPConfig(BaseModel):
+    """MCP server configuration."""
+
+    servers_file: str = Field(default="mcp_servers.json", description="Path to MCP servers JSON file")
+    timeout: int = Field(default=30, description="MCP server timeout in seconds")
+
+
 class ConfigData(BaseModel):
     """Complete configuration data structure."""
 
     agent: AgentConfig = Field(..., description="Agent metadata")
     api: APIConfig = Field(..., description="API configuration")
     models: ModelsConfig = Field(..., description="Models configuration")
+    mcp: MCPConfig = Field(default_factory=MCPConfig, description="MCP configuration")
 
 
 class Config:
@@ -214,6 +224,30 @@ class Config:
 
         provider_name = default_model.split("/")[0]
         return self.get_model_provider(provider_name)
+
+    def get_api_keys(self) -> list[str]:
+        """Get list of valid API keys from configuration.
+
+        Parses the comma-separated api_keys string into a list.
+
+        Returns:
+            list[str]: List of valid API keys.
+        """
+        if not self.data.api.api_keys:
+            return []
+        return [key.strip() for key in self.data.api.api_keys.split(",") if key.strip()]
+
+    def get_mcp_servers_file(self) -> str:
+        """Get the path to MCP servers configuration file.
+
+        Returns:
+            str: Path to MCP servers JSON file (absolute or relative to workspace).
+        """
+        servers_file = self.data.mcp.servers_file
+        if not servers_file.startswith("/"):
+            # Relative path - resolve against workspace
+            return str(Path(self._workspace_path) / servers_file)
+        return servers_file
 
     def reload(self) -> None:
         """Reload the configuration from disk.

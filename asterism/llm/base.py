@@ -1,6 +1,7 @@
 """Base LLM provider interface for the agent framework."""
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
 
@@ -125,6 +126,28 @@ class BaseLLMProvider(ABC):
         """
         pass
 
+    async def astream(
+        self,
+        prompt: str | list[BaseMessage],
+        **kwargs,
+    ) -> AsyncGenerator[str]:
+        """
+        Stream LLM response tokens asynchronously.
+
+        This is a base implementation that falls back to invoke().
+        Subclasses should override this with native streaming support.
+
+        Args:
+            prompt: Either a text prompt (str) or a list of messages.
+            **kwargs: Additional provider-specific parameters.
+
+        Yields:
+            Tokens (strings) as they are generated.
+        """
+        # Default implementation: invoke and yield full response as single chunk
+        result = self.invoke(prompt, **kwargs)
+        yield result
+
     def _build_messages(
         self,
         prompt: str | list[BaseMessage],
@@ -189,4 +212,15 @@ class BaseLLMProvider(ABC):
     @abstractmethod
     def model(self) -> str:
         """Model name/version being used."""
+        pass
+
+    def set_model(self, model: str) -> None:
+        """Set the model for this provider.
+
+        This allows dynamic model switching per-request.
+
+        Args:
+            model: Model name to use for subsequent calls.
+        """
+        # Base implementation - subclasses should override if they support dynamic model switching
         pass

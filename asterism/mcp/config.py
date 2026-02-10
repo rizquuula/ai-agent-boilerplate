@@ -195,3 +195,19 @@ def load_mcp_config(config_path: str | None = None) -> MCPConfig:
     _mcp_config = MCPConfig(config_path)
     _mcp_config.load_config()
     return _mcp_config
+
+
+class MCPConfigLoader:
+    """Static loader for MCP configuration."""
+
+    @staticmethod
+    def load(config_path: str) -> MCPConfig:
+        """Load MCP configuration from file.
+
+        Args:
+            config_path: Path to the MCP configuration file.
+
+        Returns:
+            MCPConfig instance with loaded configuration.
+        """
+        return load_mcp_config(config_path)
