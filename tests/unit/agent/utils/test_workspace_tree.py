@@ -35,7 +35,7 @@ def test_should_ignore_wildcard_match():
 
 def test_should_ignore_no_match():
     """Test that non-matching names are not ignored."""
-    assert _should_ignore("src", DEFAULT_IGNORE_PATTERNS) is False
+    assert _should_ignore("asterism", DEFAULT_IGNORE_PATTERNS) is False
     assert _should_ignore("main.py", DEFAULT_IGNORE_PATTERNS) is False
     assert _should_ignore("README.md", DEFAULT_IGNORE_PATTERNS) is False
 

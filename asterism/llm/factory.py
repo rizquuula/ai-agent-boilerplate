@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from asterism.llm.provider_router import LLMProviderRouter
 
+
 class LLMProviderFactory:
     """Factory for creating LLM provider instances from configuration."""
 
