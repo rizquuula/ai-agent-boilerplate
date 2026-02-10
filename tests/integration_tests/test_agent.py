@@ -3,13 +3,14 @@
 import os
 
 import pytest
+from langchain_core.messages import HumanMessage
 
 from asterism.agent.agent import Agent
 from asterism.llm.openai_provider import OpenAIProvider
 from asterism.mcp.executor import MCPExecutor
 
 
-def agent_invoke(message):
+def agent_invoke(message: dict):
     """Test agent invocation with real LLM."""
     if not os.getenv("OPENAI_API_KEY"):
         pytest.skip("OPENAI_API_KEY not set")
@@ -31,7 +32,7 @@ def agent_invoke(message):
 
     response = agent.invoke(
         session_id="test-session",
-        user_message=message,
+        messages=[message],
     )
 
     agent.close()
@@ -44,10 +45,11 @@ def agent_invoke(message):
 @pytest.mark.parametrize(
     "message",
     (
-        # "What time is it now?",
+        "What time is it now?",
         # "Can you read your SOUL.md and tell me what inside?",
-        "Can you change your name in personality.md from Asteri to Yui? I want a cute name",
+        # "Can you change your name in personality.md from Asteri to Yui? I want a cute name",
     ),
 )
-def test_agent_invoke(message):
-    agent_invoke(message)
+def test_agent_invoke(message: str):
+    user_message = HumanMessage(content=message)
+    agent_invoke(user_message)
