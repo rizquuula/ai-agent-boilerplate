@@ -1,7 +1,8 @@
 """Simple MCP server that returns current local time using FastMCP."""
 
 import os
-from datetime import UTC, datetime
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from mcp.server.fastmcp import FastMCP
 
@@ -17,17 +18,36 @@ mcp = FastMCP(
 
 
 @mcp.tool()
-def get_current_time() -> dict:
-    """Get the current local time with timezone information.
-
-    Returns:
-        Dictionary containing ISO datetime string, UNIX timestamp, and timezone.
+def get_current_time(timezone: str | None = None) -> dict:
     """
-    now = datetime.now(UTC).astimezone()
+    Get the current time for a specific timezone.
+
+    Args:
+        timezone: An IANA timezone string (e.g., 'America/Los_Angeles').
+                 Defaults to UTC if not provided or invalid.
+    """
+    try:
+        # Default to UTC if no timezone is provided
+        tz_name = timezone if timezone else "UTC"
+        tz_info = ZoneInfo(tz_name)
+    except Exception:
+        # Fallback if the user provides a junk string
+        tz_info = ZoneInfo("UTC")
+        tz_name = "UTC (fallback)"
+
+    now = datetime.now(tz_info)
+
     return {
+        "requested_timezone": tz_name,
         "iso_datetime": now.isoformat(),
         "unix_timestamp": int(now.timestamp()),
-        "timezone": str(now.tzinfo),
+        "year": now.year,
+        "month": now.month,
+        "day": now.day,
+        "hour": now.hour,
+        "minute": now.minute,
+        "weekday": now.strftime("%A"),
+        "is_dst": bool(now.dst())  # Crucial for scheduling!
     }
 
 
