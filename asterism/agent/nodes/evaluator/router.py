@@ -3,6 +3,7 @@
 from enum import StrEnum
 
 from asterism.agent.models import EvaluationDecision
+from asterism.agent.nodes.shared import is_linear_plan
 from asterism.agent.state import AgentState
 
 
@@ -18,6 +19,9 @@ def determine_route(state: AgentState) -> RouteTarget:
     """Determine next node based on state.
 
     Uses evaluation_result if available, falls back to logic-based routing.
+
+    For linear plans with all tasks completed successfully, routes directly
+    to finalizer without requiring an LLM evaluation, saving tokens and time.
 
     Args:
         state: Current agent state.
@@ -36,6 +40,46 @@ def determine_route(state: AgentState) -> RouteTarget:
 
     # Fallback logic if no evaluation result
     return _determine_fallback_route(state)
+
+
+def can_skip_evaluation(state: AgentState) -> bool:
+    """Check if LLM evaluation can be skipped for this state.
+
+    For linear plans where all tasks have completed successfully,
+    we can skip the evaluator LLM call and go directly to finalizer.
+
+    Args:
+        state: Current agent state.
+
+    Returns:
+        True if evaluation can be skipped, False otherwise.
+    """
+    plan = state.get("plan")
+    if not plan:
+        return False
+
+    # Only skip for linear plans
+    if not is_linear_plan(plan):
+        return False
+
+    current_index = state.get("current_task_index", 0)
+    total_tasks = len(plan.tasks)
+
+    # All tasks completed
+    if current_index < total_tasks:
+        return False
+
+    # Check all tasks succeeded
+    execution_results = state.get("execution_results", [])
+    if not execution_results or len(execution_results) < total_tasks:
+        return False
+
+    # Verify all results are successful
+    for result in execution_results:
+        if not result.success:
+            return False
+
+    return True
 
 
 def _route_from_decision(decision: EvaluationDecision) -> RouteTarget:

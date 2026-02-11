@@ -47,7 +47,7 @@ def get_current_time(timezone: str | None = None) -> dict:
         "hour": now.hour,
         "minute": now.minute,
         "weekday": now.strftime("%A"),
-        "is_dst": bool(now.dst())  # Crucial for scheduling!
+        "is_dst": bool(now.dst()),  # Crucial for scheduling!
     }
 
 

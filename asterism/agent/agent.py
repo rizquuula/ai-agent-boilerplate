@@ -158,14 +158,19 @@ class Agent:
         # Aggregate LLM usage from all nodes
         llm_usage_list = final_state.get("llm_usage", [])
         total_usage = {
-            "total_prompt_tokens": sum(u.prompt_tokens for u in llm_usage_list),
-            "total_completion_tokens": sum(u.completion_tokens for u in llm_usage_list),
-            "total_tokens": sum(u.total_tokens for u in llm_usage_list),
+            "total_prompt_tokens": sum(
+                [u.prompt_tokens if u and hasattr(u, "prompt_tokens") else 0 for u in llm_usage_list]
+            ),
+            "total_completion_tokens": sum(
+                u.completion_tokens if u and hasattr(u, "completion_tokens") else 0 for u in llm_usage_list
+            ),
+            "total_tokens": sum(u.total_tokens if u and hasattr(u, "total_tokens") else 0 for u in llm_usage_list),
             "calls_by_node": {},
         }
         for usage in llm_usage_list:
-            node = usage.node_name
-            total_usage["calls_by_node"][node] = total_usage["calls_by_node"].get(node, 0) + 1
+            if hasattr(usage, "node_name"):
+                node = usage.node_name
+                total_usage["calls_by_node"][node] = total_usage["calls_by_node"].get(node, 0) + 1
 
         return {
             "message": response.message,

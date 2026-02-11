@@ -5,6 +5,7 @@ This module provides cross-cutting concerns used across all nodes:
 - State manipulation utilities
 - Context extraction from agent state
 - Execution trace building
+- Plan analysis for optimization
 """
 
 from .context_extractors import (
@@ -17,6 +18,13 @@ from .context_extractors import (
     has_execution_history,
 )
 from .llm_caller import LLMCaller, LLMCallResult
+from .plan_analyzer import (
+    analyze_plan_complexity,
+    can_skip_intermediate_evaluation,
+    get_execution_batch,
+    is_linear_plan,
+    should_finalize_directly,
+)
 from .state_utils import (
     advance_task,
     append_llm_usage,
@@ -50,4 +58,10 @@ __all__ = [
     "set_plan",
     # Trace Builder
     "build_execution_trace",
+    # Plan Analyzer
+    "is_linear_plan",
+    "get_execution_batch",
+    "can_skip_intermediate_evaluation",
+    "should_finalize_directly",
+    "analyze_plan_complexity",
 ]
